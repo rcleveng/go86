@@ -9,7 +9,6 @@ import (
 	"golang.org/x/arch/x86/x86asm"
 )
 
-//var foo = flag.Bool("verbose", false, "--verbose means be verobse")
 var help = flag.Bool("help", false, "--help means show help")
 
 func main() {
@@ -38,8 +37,6 @@ func main() {
 		fmt.Printf("Relo: %04X:%04X\n", r.Segment, r.Offset)
 
 	}
-	//code := hex.EncodeToString(exe.Data)
-	//fmt.Printf("Raw: [%s]\n\nDisasm:\n", code)
 
 	pos := 0
 	raw := exe.Data

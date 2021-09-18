@@ -7,7 +7,7 @@ import (
 	"os"
 
 	log "github.com/golang/glog"
-	cpucore "go86.org/go86/cpucore"
+	cpu "go86.org/go86/cpu"
 	"golang.org/x/arch/x86/x86asm"
 )
 
@@ -18,25 +18,25 @@ type Dos struct {
 	Err io.Writer
 
 	Mem *DosMem
-	cpu *cpucore.CPU
+	cpu *cpu.CPU
 }
 
-func (dos *Dos) Int20(cpu *cpucore.CPU, intnum int) {
-	log.V(3).Infof("Dos.int%02x: [AX: %04X]", intnum, cpu.Regs[cpucore.REG_AX])
-	cpu.Halt()
+func (dos *Dos) Int20(c *cpu.CPU, intnum int) {
+	log.V(3).Infof("Dos.int%02x: [AX: %04X]", intnum, c.Regs[cpu.REG_AX])
+	c.Halt()
 }
 
-func (dos *Dos) Int21(cpu *cpucore.CPU, intnum int) {
-	log.V(3).Infof("Dos.int%02x: [AX: %04X]", intnum, cpu.Regs[cpucore.REG_AX])
-	switch ah := cpu.Reg(x86asm.AH); ah {
+func (dos *Dos) Int21(c *cpu.CPU, intnum int) {
+	log.V(3).Infof("Dos.int%02x: [AX: %04X]", intnum, c.Regs[cpu.REG_AX])
+	switch ah := c.Reg(x86asm.AH); ah {
 	case 0x02: // Print Char
-		dl := cpu.Reg(x86asm.DL)
+		dl := c.Reg(x86asm.DL)
 		s := []byte{byte(dl)}
 		dos.Out.Write(s)
 	case 0x09: // Print String
-		ds := cpu.Sregs[cpucore.SREG_DS]
-		dx := cpu.Reg(x86asm.DX)
-		b := cpu.Mem.At(int(ds), int(dx))
+		ds := c.Sregs[cpu.SREG_DS]
+		dx := c.Reg(x86asm.DX)
+		b := c.Mem.At(int(ds), int(dx))
 		end := bytes.IndexByte(b, byte('$'))
 		if end != -1 {
 			s := b[:end]
@@ -45,27 +45,27 @@ func (dos *Dos) Int21(cpu *cpucore.CPU, intnum int) {
 	case 0x30:
 		// AH=30h - GET DOS VERSION
 		// 3.2
-		cpu.Regs[cpucore.REG_AH] = 2
-		cpu.Regs[cpucore.REG_AL] = 3
+		c.Regs[cpu.REG_AH] = 2
+		c.Regs[cpu.REG_AL] = 3
 	case 0x25:
 		// AH = 25h - SET INTERRUPT VECTOR
-		al := int(cpu.Regs[cpucore.REG_AX] & 0xFF)
-		ds := cpu.Sregs[cpucore.SREG_DS]
-		dx := cpu.Regs[cpucore.REG_DX]
-		cpu.Mem.PutMem16(0, al, dx)
-		cpu.Mem.PutMem16(0, al+2, ds)
+		al := int(c.Regs[cpu.REG_AX] & 0xFF)
+		ds := c.Sregs[cpu.SREG_DS]
+		dx := c.Regs[cpu.REG_DX]
+		c.Mem.PutMem16(0, al, dx)
+		c.Mem.PutMem16(0, al+2, ds)
 	case 0x35:
 		// AH=35h - GET INTERRUPT VECTOR
-		al := int(cpu.Regs[cpucore.REG_AX] & 0xFF)
-		cpu.Sregs[cpucore.SREG_ES] = cpu.Mem.Mem16(0, al)
-		cpu.Regs[cpucore.REG_BX] = cpu.Mem.Mem16(0, al+2)
+		al := int(c.Regs[cpu.REG_AX] & 0xFF)
+		c.Sregs[cpu.SREG_ES] = c.Mem.Mem16(0, al)
+		c.Regs[cpu.REG_BX] = c.Mem.Mem16(0, al+2)
 	case 0x40:
 		// AH=40h - "WRITE" - WRITE TO FILE OR DEVICE
-		bx := int(cpu.Regs[cpucore.REG_BX])
-		cx := int(cpu.Regs[cpucore.REG_CX])
-		ds := int(cpu.Sregs[cpucore.SREG_DS])
-		dx := int(cpu.Regs[cpucore.REG_DX])
-		s := cpu.Mem.At(ds, dx)[:cx]
+		bx := int(c.Regs[cpu.REG_BX])
+		cx := int(c.Regs[cpu.REG_CX])
+		ds := int(c.Sregs[cpu.SREG_DS])
+		dx := int(c.Regs[cpu.REG_DX])
+		s := c.Mem.At(ds, dx)[:cx]
 		switch bx {
 		case 1:
 			dos.Out.Write(s)
@@ -78,29 +78,29 @@ func (dos *Dos) Int21(cpu *cpucore.CPU, intnum int) {
 		// INT 21 - AH = 4Ah DOS 2+ - ADJUST MEMORY BLOCK SIZE (SETBLOCK)
 		// ES = Segment address of block to change
 		// BX = New size in paragraphs
-		es := int(cpu.Sregs[cpucore.SREG_ES])
-		bx := int(cpu.Regs[cpucore.REG_BX])
+		es := int(c.Sregs[cpu.SREG_ES])
+		bx := int(c.Regs[cpu.REG_BX])
 		log.V(3).Infof("INT21H: [4A] [BLOCK: 0x%04X, SIZE: %d paragraphs, %d bytes]", es, bx, bx*16)
 		newsize, err := dos.Mem.Resize(es, bx)
 		if err != nil {
-			dos.cpu.SetFlagIf(cpucore.CF, true)
+			dos.cpu.SetFlagIf(cpu.CF, true)
 			return
 		}
-		cpu.PutReg(x86asm.BX, uint(newsize))
+		c.PutReg(x86asm.BX, uint(newsize))
 	case 0x4C:
-		cpu.Halt()
+		c.Halt()
 	default:
 		log.Warningf("Unhandled DOS Interrupt Code: [%02x]\n", ah)
 	}
 }
 
-func NewDos(cpu *cpucore.CPU) *Dos {
+func NewDos(cpu *cpu.CPU) *Dos {
 	end := 0x9FC0
 	dos := &Dos{
 		Out: os.Stdout,
 		In:  os.Stdin,
 		Err: os.Stderr,
-		// TODO: If end > cpu.Mem end, lower it.
+		// TODO: If end > c.Mem end, lower it.
 		// 0x800
 		Mem: NewDosMem(0x0C85, end),
 		cpu: cpu,
@@ -132,12 +132,12 @@ func (dos *Dos) LoadCom(exe *Executable, seg_base *DosMemBlock) (seg uint16, err
 	// DS is what we allocated, for EXE, CS is 0x100 past it since the PSP goes first
 	seg_start := uint16(seg_base.Start)
 	image_start := seg_start + 0x10
-	dos.cpu.Sregs[cpucore.SREG_CS] = seg_start
-	dos.cpu.Sregs[cpucore.SREG_DS] = seg_start
-	dos.cpu.Sregs[cpucore.SREG_ES] = seg_start
-	dos.cpu.Sregs[cpucore.SREG_SS] = seg_start
+	dos.cpu.Sregs[cpu.SREG_CS] = seg_start
+	dos.cpu.Sregs[cpu.SREG_DS] = seg_start
+	dos.cpu.Sregs[cpu.SREG_ES] = seg_start
+	dos.cpu.Sregs[cpu.SREG_SS] = seg_start
 	// default SP
-	dos.cpu.Regs[cpucore.REG_SP] = 0xFFFE
+	dos.cpu.Regs[cpu.REG_SP] = 0xFFFE
 	// skip past PSP
 	dos.cpu.Ip = 0x100
 
@@ -151,12 +151,12 @@ func (dos *Dos) LoadImage(exe *Executable, seg_base *DosMemBlock) (seg uint16, e
 	// DS is what we allocated, for EXE, CS is 0x100 past it since the PSP goes first
 	seg_start := uint16(seg_base.Start)
 	image_start := seg_start
-	dos.cpu.Sregs[cpucore.SREG_CS] = seg_start
-	dos.cpu.Sregs[cpucore.SREG_DS] = seg_start
-	dos.cpu.Sregs[cpucore.SREG_ES] = seg_start
-	dos.cpu.Sregs[cpucore.SREG_SS] = seg_start
+	dos.cpu.Sregs[cpu.SREG_CS] = seg_start
+	dos.cpu.Sregs[cpu.SREG_DS] = seg_start
+	dos.cpu.Sregs[cpu.SREG_ES] = seg_start
+	dos.cpu.Sregs[cpu.SREG_SS] = seg_start
 	// default SP
-	dos.cpu.Regs[cpucore.REG_SP] = 0xFFFE
+	dos.cpu.Regs[cpu.REG_SP] = 0xFFFE
 	// skip past PSP
 	dos.cpu.Ip = 0
 
@@ -174,19 +174,19 @@ func (dos *Dos) LoadExe(exe *Executable, seg_base *DosMemBlock) (seg uint16, err
 	es := seg_start
 	cs := (img_start + exe.Hdr.CS) & 0xFFFF
 	ss := (img_start + exe.Hdr.SS) & 0xFFFF
-	dos.cpu.Sregs[cpucore.SREG_CS] = cs
-	dos.cpu.Sregs[cpucore.SREG_DS] = ds
-	dos.cpu.Sregs[cpucore.SREG_ES] = es
-	dos.cpu.Sregs[cpucore.SREG_SS] = ss
-	dos.cpu.Regs[cpucore.REG_SP] = exe.Hdr.SP
-	dos.cpu.Regs[cpucore.REG_BP] = 0
+	dos.cpu.Sregs[cpu.SREG_CS] = cs
+	dos.cpu.Sregs[cpu.SREG_DS] = ds
+	dos.cpu.Sregs[cpu.SREG_ES] = es
+	dos.cpu.Sregs[cpu.SREG_SS] = ss
+	dos.cpu.Regs[cpu.REG_SP] = exe.Hdr.SP
+	dos.cpu.Regs[cpu.REG_BP] = 0
 	dos.cpu.Ip = exe.Hdr.IP
 
 	// Copy data into memory at CS from the binary read from disk.
 	copy(dos.cpu.Mem.At(int(cs), 0), exe.Data)
 
 	log.V(1).Infof("EXE Values:\nCS: 0x%04X\nDS: 0x%04X\nES: 0x%04X\nSS: 0x%04X\nIP: 0x%04X\n\n", cs, ds, es, ss, dos.cpu.Ip)
-	log.V(1).Infof("SP: 0x%04X\n", dos.cpu.Regs[cpucore.REG_SP])
+	log.V(1).Infof("SP: 0x%04X\n", dos.cpu.Regs[cpu.REG_SP])
 
 	// Fixup relos
 	for _, r := range exe.Hdr.Relos {
