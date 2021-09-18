@@ -937,8 +937,9 @@ type CPU struct {
 	Flags uint16
 	Ip    uint16
 
-	running bool
-	Intrs   map[int]func(*CPU, int)
+	running  bool
+	Intrs    map[int]func(*CPU, int)
+	debugger Debugger
 }
 
 func NewCpu(size int) *CPU {
@@ -1133,6 +1134,10 @@ func (cpu *CPU) Run() {
 	}
 }
 
+func (cpu *CPU) EnableDebugger() {
+	cpu.debugger = NewDebuggerBackend(cpu)
+}
+
 func (cpu *CPU) RunOnce() bool {
 	inst, err := cpu.Decode()
 	cs := int(cpu.Sregs[SREG_CS])
@@ -1143,6 +1148,9 @@ func (cpu *CPU) RunOnce() bool {
 		return false
 	}
 
+	if cpu.debugger != nil {
+		cpu.debugger.Step()
+	}
 	origIp := cpu.Ip
 	cpu.Ip += uint16(inst.Len)
 	res := cpu.DoInst(inst, origIp)

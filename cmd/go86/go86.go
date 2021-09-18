@@ -51,6 +51,9 @@ func dorun(filename string) bool {
 		return false
 	}
 
+	if *dbg {
+		cpu.EnableDebugger()
+	}
 	cpu.Run()
 	fmt.Println("")
 	return true
@@ -60,6 +63,7 @@ var (
 	runcmd       = flag.NewFlagSet("run", flag.ExitOnError)
 	instcmd      = flag.NewFlagSet("inst", flag.ExitOnError)
 	runForceType = runcmd.Bool("image", false, "load binary as binary image instead of COM or EXE")
+	dbg          = runcmd.Bool("dbg", false, "Enable the debugger")
 )
 
 func showHelp() {
