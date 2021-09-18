@@ -57,9 +57,8 @@ func dorun(filename string) bool {
 }
 
 var (
-	runcmd  = flag.NewFlagSet("run", flag.ExitOnError)
-	instcmd = flag.NewFlagSet("inst", flag.ExitOnError)
-	//foo     = flag.Bool("verbose", false, "--verbose means be verobse")
+	runcmd       = flag.NewFlagSet("run", flag.ExitOnError)
+	instcmd      = flag.NewFlagSet("inst", flag.ExitOnError)
 	runForceType = runcmd.Bool("image", false, "load binary as binary image instead of COM or EXE")
 )
 
