@@ -9,7 +9,7 @@ import (
 )
 
 func TestExeSmoke(t *testing.T) {
-	hdr := make([]byte, 500)
+	hdr := make([]byte, 1000)
 	binary.LittleEndian.PutUint16(hdr, 0x5A4D)
 	// 1 byte on last page
 	binary.LittleEndian.PutUint16(hdr[2:], 0x0028)
@@ -39,11 +39,14 @@ func TestExeSmoke(t *testing.T) {
 	binary.LittleEndian.PutUint16(hdr[26:], 0x0000)
 	// Hello World
 	slice, _ := hex.DecodeString("B801008ED88D160A00B409CD21B87F00BA010002C2B44CCD21")
-	copy(hdr[0x38:], slice)
+	copy(hdr[0x200:], slice)
 
 	e, err := ReadExe(hdr)
 	if err != nil {
 		t.Error("Error: ", err)
 	}
+	// Smoke check the header
 	assert.Equal(t, e.Hdr.CS, uint16(0x0100))
+	// Assert the actual bits of the program are correct.
+	assert.DeepEqual(t, e.Data[:len(slice)], slice)
 }
