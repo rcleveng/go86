@@ -53,16 +53,16 @@ func (m DosMemBlock) Size() int {
 
 // Stringer for DosMem
 func (m DosMem) String() string {
-	var b strings.Builder
-	for i := 0; i < len(m.Blocks); i++ {
-		fmt.Fprintf(&b, "%s\n", m.Blocks[i].String())
+	var s strings.Builder
+	for _, b := range m.Blocks {
+		fmt.Fprintf(&s, "%s\n", b.String())
 	}
-	return b.String()
+	return s.String()
 }
 
 func (m *DosMem) FindBlock(start int) (blockNum int, found bool) {
-	for i := 0; i < len(m.Blocks); i++ {
-		if m.Blocks[i].Start == start {
+	for i, b := range m.Blocks {
+		if b.Start == start {
 			return i, true
 		}
 	}
