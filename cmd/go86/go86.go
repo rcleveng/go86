@@ -8,8 +8,9 @@ import (
 
 	glog "github.com/golang/glog"
 	bios "go86.org/go86/bios"
-	cpu "go86.org/go86/cpu"
+	go86 "go86.org/go86/cpu"
 	dos "go86.org/go86/dos"
+	gdb "go86.org/go86/gdb"
 )
 
 func doinst(opcodes string) bool {
@@ -20,12 +21,12 @@ func doinst(opcodes string) bool {
 	}
 
 	cs := 0x1000
-	c := cpu.NewCpu(1024 * 1024)
+	c := go86.NewCpu(1024 * 1024)
 	bios.NewBios(c)
 	dos.NewDos(c)
 	copy(c.Mem.At(cs, 0), d)
-	c.Sregs[cpu.SREG_CS] = 0x1000
-	c.Sregs[cpu.SREG_DS] = 0x1000
+	c.Sregs[go86.SREG_CS] = 0x1000
+	c.Sregs[go86.SREG_DS] = 0x1000
 	c.Ip = 0
 	c.Run()
 	return true
@@ -42,7 +43,7 @@ func dorun(filename string) bool {
 		exe.Etype = dos.IMAGE
 	}
 
-	cpu := cpu.NewCpu(1024 * 1024)
+	cpu := go86.NewCpu(1024 * 1024)
 	bios.NewBios(cpu)
 	di := dos.NewDos(cpu)
 	_, err = di.Load(exe)
@@ -52,7 +53,11 @@ func dorun(filename string) bool {
 	}
 
 	if *dbg {
-		cpu.EnableDebugger()
+		request := make(chan go86.DebuggerRequest)
+		response := make(chan go86.DebuggerResponse)
+		cpu.EnableDebugger(request, response)
+
+		gdb.Listen(1234, request, response)
 	}
 	cpu.Run()
 	fmt.Println("")

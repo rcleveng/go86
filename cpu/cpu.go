@@ -1134,7 +1134,7 @@ func (cpu *CPU) Run() {
 	}
 }
 
-func (cpu *CPU) EnableDebugger() {
+func (cpu *CPU) EnableDebugger(request chan DebuggerRequest, response chan DebuggerResponse) {
 	cpu.debugger = NewDebuggerBackend(cpu)
 }
 

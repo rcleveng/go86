@@ -29,6 +29,12 @@ type Debugger interface {
 	Intr() bool
 }
 
+type DebuggerRequest struct {
+}
+
+type DebuggerResponse struct {
+}
+
 type DebuggerBackend struct {
 	cpu         *CPU
 	breakpoints []Breaker

@@ -17,7 +17,7 @@ type Bios struct {
 	cpu *cpu.CPU
 }
 
-func (dos *Bios) Int10(c *cpu.CPU, intnum int) {
+func (bios *Bios) Int10(c *cpu.CPU, intnum int) {
 	log.Infof("Bios.int%02x: [AX: %04X]", intnum, c.Regs[cpu.REG_AX])
 	switch ah := c.Reg(x86asm.AH); ah {
 	default:
@@ -27,24 +27,24 @@ func (dos *Bios) Int10(c *cpu.CPU, intnum int) {
 		// 0x09 shoud set attribute too, we're not doing that yet
 		al := c.Reg(x86asm.AL)
 		s := []byte{byte(al)}
-		dos.Out.Write(s)
+		bios.Out.Write(s)
 		if cx := int(c.Reg(x86asm.CX)); cx > 1 {
 			for i := 1; i < cx; i++ {
-				dos.Out.Write(s)
+				bios.Out.Write(s)
 			}
 		}
 	case 0x0E: // Print Char
 		// 0x09 shoud set attribute too, we're not doing that yet
 		al := c.Reg(x86asm.AL)
 		s := []byte{byte(al)}
-		dos.Out.Write(s)
+		bios.Out.Write(s)
 	case 0x13: // Print String
 		es := c.Sregs[cpu.SREG_ES]
 		bp := c.Reg(x86asm.BP)
 		b := c.Mem.At(int(es), int(bp))
 		end := c.Reg(x86asm.CX)
 		s := b[:end]
-		dos.Out.Write(s)
+		bios.Out.Write(s)
 	}
 }
 
