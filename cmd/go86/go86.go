@@ -9,8 +9,8 @@ import (
 	glog "github.com/golang/glog"
 	bios "go86.org/go86/bios"
 	go86 "go86.org/go86/cpu"
+	deb "go86.org/go86/debugger"
 	dos "go86.org/go86/dos"
-	gdb "go86.org/go86/gdb"
 )
 
 func doinst(opcodes string) bool {
@@ -52,12 +52,12 @@ func dorun(filename string) bool {
 		return false
 	}
 
-	if *dbg {
-		request := make(chan go86.DebuggerRequest)
-		response := make(chan go86.DebuggerResponse)
-		cpu.EnableDebugger(request, response)
+	if *dbg == "gdb" || *dbg == "lame" {
+		request := make(chan deb.DebuggerRequest)
+		response := make(chan deb.DebuggerResponse, 5)
+		deb.EnableDebugger(cpu, request, response)
 
-		go gdb.Listen(1234, request, response)
+		go deb.Listen(1234, *dbg, request, response)
 	}
 	cpu.Run()
 	fmt.Println("")
@@ -65,10 +65,10 @@ func dorun(filename string) bool {
 }
 
 var (
+	dbg          = flag.String("dbg", "none", "Enable and specifies the type of debugger.  Values are: none, gdb, lame")
 	runcmd       = flag.NewFlagSet("run", flag.ExitOnError)
 	instcmd      = flag.NewFlagSet("inst", flag.ExitOnError)
 	runForceType = runcmd.Bool("image", false, "load binary as binary image instead of COM or EXE")
-	dbg          = runcmd.Bool("dbg", false, "Enable the debugger")
 )
 
 func showHelp() {

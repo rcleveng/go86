@@ -2,14 +2,16 @@ package go86
 
 import (
 	"fmt"
+	"sync"
 
 	log "github.com/golang/glog"
+	cpu "go86.org/go86/cpu"
 )
 
 // Interface type for a breakpoint
 type Breaker interface {
 	// If this breakpoint should stop at the current s
-	ShouldBreak(cpu *CPU) bool
+	ShouldBreak(*cpu.CPU) bool
 }
 
 type Breakpoint struct {
@@ -17,18 +19,13 @@ type Breakpoint struct {
 	off uint16
 }
 
-func (b Breakpoint) ShouldBreak(cpu *CPU) bool {
-	cs := cpu.Sregs[SREG_CS]
-	if cs == b.seg && b.off == cpu.Ip {
-		log.V(1).Infof("Breaking at: [%04X:%04X]", cs, cpu.Ip)
+func (b Breakpoint) ShouldBreak(c *cpu.CPU) bool {
+	cs := c.Sregs[cpu.SREG_CS]
+	if cs == b.seg && b.off == c.Ip {
+		log.V(1).Infof("Breaking at: [%04X:%04X]", cs, c.Ip)
 		return true
 	}
 	return false
-}
-
-type Debugger interface {
-	Step() bool
-	Intr() bool
 }
 
 type DebugCommand int
@@ -60,15 +57,17 @@ type DebuggerResponse struct {
 }
 
 type DebuggerBackend struct {
-	cpu         *CPU
+	cpu         *cpu.CPU
 	breakpoints []Breaker
 	request     chan DebuggerRequest
 	response    chan DebuggerResponse
 	mode        DebuggerMode
+	interrupted bool
+	mu          sync.RWMutex // for interrupted
 }
 
-func NewDebuggerBackend(cpu *CPU, request chan DebuggerRequest, response chan DebuggerResponse) *DebuggerBackend {
-	log.V(4).Infoln("NewDebuger")
+func NewDebuggerBackend(cpu *cpu.CPU, request chan DebuggerRequest, response chan DebuggerResponse) *DebuggerBackend {
+	log.V(4).Infoln("NewDebuggerBackend")
 	return &DebuggerBackend{
 		cpu:         cpu,
 		breakpoints: make([]Breaker, 0, 20),
@@ -76,6 +75,12 @@ func NewDebuggerBackend(cpu *CPU, request chan DebuggerRequest, response chan De
 		response:    response,
 		mode:        STEPPING,
 	}
+}
+
+func (d *DebuggerBackend) Interrupt() {
+	d.mu.Lock()
+	d.interrupted = true
+	d.mu.Unlock()
 }
 
 func (d *DebuggerBackend) ShouldBreak() bool {
@@ -90,12 +95,13 @@ func (d *DebuggerBackend) ShouldBreak() bool {
 			return true
 		}
 	}
-	return false
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.interrupted
 }
 
 func (d *DebuggerBackend) Step() bool {
-	log.V(1).Infof("[%04X:%04X] Step", d.cpu.Sregs[SREG_CS], d.cpu.Ip)
-
+	log.V(1).Infof("[%04X:%04X] Step", d.cpu.Sregs[cpu.SREG_CS], d.cpu.Ip)
 	// Handle any debugger requests first
 	if !d.ShouldBreak() {
 		return true
@@ -107,24 +113,25 @@ func (d *DebuggerBackend) Step() bool {
 			d.mode = RUNNING
 			return true
 		case DETACH:
-			d.cpu.debugger = nil
+			d.cpu.Debugger = nil
 			d.mode = RUNNING
 			return true
 		case STEP:
 			d.mode = STEPPING
 			return true
 		case HALT:
+			d.cpu.Running = false
 			return false
 		case INFO:
 			resp := DebuggerResponse{}
-			resp.Text = fmt.Sprintf("AX: %x", d.cpu.Regs[REG_AX])
+			resp.Text = fmt.Sprintf("AX: %x", d.cpu.Regs[cpu.REG_AX])
 			d.response <- resp
 		case HEARTBEAT:
 			resp := DebuggerResponse{}
 			resp.Text = "Heartbeat"
 			d.response <- resp
 		default:
-			log.Infoln("Inknown request: ", r)
+			log.Warningln("Inknown request: ", r)
 		}
 	}
 
@@ -148,4 +155,8 @@ func (d *DebuggerBackend) RemoveBreakpoint(sb Breakpoint) bool {
 		}
 	}
 	return false
+}
+
+func EnableDebugger(c *cpu.CPU, request chan DebuggerRequest, response chan DebuggerResponse) {
+	c.Debugger = NewDebuggerBackend(c, request, response)
 }

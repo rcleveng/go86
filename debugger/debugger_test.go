@@ -3,11 +3,12 @@ package go86
 import (
 	"testing"
 
+	cpu "go86.org/go86/cpu"
 	"gotest.tools/v3/assert"
 )
 
 func TestDebuggerSmoke(t *testing.T) {
-	cpu := NewCpu(1024 * 1024)
+	cpu := cpu.NewCpu(1024 * 1024)
 	d := NewDebuggerBackend(cpu, nil, nil)
 
 	if len(d.breakpoints) != 0 {
@@ -16,8 +17,8 @@ func TestDebuggerSmoke(t *testing.T) {
 }
 
 func TestDebuggerAddBreakpoint(t *testing.T) {
-	cpu := NewCpu(1024 * 1024)
-	d := NewDebuggerBackend(cpu, nil, nil)
+	c := cpu.NewCpu(1024 * 1024)
+	d := NewDebuggerBackend(c, nil, nil)
 
 	b := Breakpoint{
 		seg: 100,
@@ -31,8 +32,8 @@ func TestDebuggerAddBreakpoint(t *testing.T) {
 }
 
 func TestDebuggerAddBreakpointDuplicate(t *testing.T) {
-	cpu := NewCpu(1024 * 1024)
-	d := NewDebuggerBackend(cpu, nil, nil)
+	c := cpu.NewCpu(1024 * 1024)
+	d := NewDebuggerBackend(c, nil, nil)
 
 	b := Breakpoint{
 		seg: 100,
@@ -47,8 +48,8 @@ func TestDebuggerAddBreakpointDuplicate(t *testing.T) {
 }
 
 func TestDebuggerAddBreakpointRemove(t *testing.T) {
-	cpu := NewCpu(1024 * 1024)
-	d := NewDebuggerBackend(cpu, nil, nil)
+	c := cpu.NewCpu(1024 * 1024)
+	d := NewDebuggerBackend(c, nil, nil)
 
 	b1 := Breakpoint{
 		seg: 100,
@@ -70,16 +71,16 @@ func TestDebuggerAddBreakpointRemove(t *testing.T) {
 }
 
 func TestDebuggerShouldBreak(t *testing.T) {
-	cpu := NewCpu(1024 * 1024)
-	cpu.Ip = 0
-	cpu.Sregs[SREG_CS] = 100
+	c := cpu.NewCpu(1024 * 1024)
+	c.Ip = 0
+	c.Sregs[cpu.SREG_CS] = 100
 
 	b := Breakpoint{
 		seg: 100,
 		off: 0,
 	}
-	assert.Assert(t, b.ShouldBreak(cpu) == true)
+	assert.Assert(t, b.ShouldBreak(c) == true)
 
-	cpu.Ip++
-	assert.Assert(t, b.ShouldBreak(cpu) == false)
+	c.Ip++
+	assert.Assert(t, b.ShouldBreak(c) == false)
 }

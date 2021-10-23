@@ -10,6 +10,11 @@ import (
 	"golang.org/x/arch/x86/x86asm"
 )
 
+type Debugger interface {
+	Step() bool
+	Intr() bool
+}
+
 const (
 	REG_AX = iota
 	REG_CX
@@ -937,14 +942,14 @@ type CPU struct {
 	Flags uint16
 	Ip    uint16
 
-	running  bool
+	Running  bool
 	Intrs    map[int]func(*CPU, int)
-	debugger Debugger
+	Debugger Debugger
 }
 
 func NewCpu(size int) *CPU {
 	m := NewMemory(size)
-	return &CPU{Mem: m, Intrs: make(map[int]func(*CPU, int)), running: true}
+	return &CPU{Mem: m, Intrs: make(map[int]func(*CPU, int)), Running: true}
 }
 
 // returns a register as an unisgned int
@@ -1125,17 +1130,13 @@ func (cpu *CPU) Decode() (x86asm.Inst, error) {
 }
 
 func (cpu *CPU) Halt() {
-	cpu.running = false
+	cpu.Running = false
 }
 
 func (cpu *CPU) Run() {
-	for cpu.running {
+	for cpu.Running {
 		cpu.RunOnce()
 	}
-}
-
-func (cpu *CPU) EnableDebugger(request chan DebuggerRequest, response chan DebuggerResponse) {
-	cpu.debugger = NewDebuggerBackend(cpu, request, response)
 }
 
 func (cpu *CPU) RunOnce() bool {
@@ -1148,8 +1149,8 @@ func (cpu *CPU) RunOnce() bool {
 		return false
 	}
 
-	if cpu.debugger != nil {
-		cpu.debugger.Step()
+	if cpu.Debugger != nil {
+		cpu.Debugger.Step()
 	}
 	origIp := cpu.Ip
 	cpu.Ip += uint16(inst.Len)
