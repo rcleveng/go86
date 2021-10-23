@@ -1135,7 +1135,7 @@ func (cpu *CPU) Run() {
 }
 
 func (cpu *CPU) EnableDebugger(request chan DebuggerRequest, response chan DebuggerResponse) {
-	cpu.debugger = NewDebuggerBackend(cpu)
+	cpu.debugger = NewDebuggerBackend(cpu, request, response)
 }
 
 func (cpu *CPU) RunOnce() bool {

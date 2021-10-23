@@ -8,7 +8,7 @@ import (
 
 func TestDebuggerSmoke(t *testing.T) {
 	cpu := NewCpu(1024 * 1024)
-	d := NewDebuggerBackend(cpu)
+	d := NewDebuggerBackend(cpu, nil, nil)
 
 	if len(d.breakpoints) != 0 {
 		t.Error("Expected breakpoints to be empty")
@@ -17,7 +17,7 @@ func TestDebuggerSmoke(t *testing.T) {
 
 func TestDebuggerAddBreakpoint(t *testing.T) {
 	cpu := NewCpu(1024 * 1024)
-	d := NewDebuggerBackend(cpu)
+	d := NewDebuggerBackend(cpu, nil, nil)
 
 	b := Breakpoint{
 		seg: 100,
@@ -32,7 +32,7 @@ func TestDebuggerAddBreakpoint(t *testing.T) {
 
 func TestDebuggerAddBreakpointDuplicate(t *testing.T) {
 	cpu := NewCpu(1024 * 1024)
-	d := NewDebuggerBackend(cpu)
+	d := NewDebuggerBackend(cpu, nil, nil)
 
 	b := Breakpoint{
 		seg: 100,
@@ -48,7 +48,7 @@ func TestDebuggerAddBreakpointDuplicate(t *testing.T) {
 
 func TestDebuggerAddBreakpointRemove(t *testing.T) {
 	cpu := NewCpu(1024 * 1024)
-	d := NewDebuggerBackend(cpu)
+	d := NewDebuggerBackend(cpu, nil, nil)
 
 	b1 := Breakpoint{
 		seg: 100,

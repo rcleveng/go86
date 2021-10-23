@@ -57,7 +57,7 @@ func dorun(filename string) bool {
 		response := make(chan go86.DebuggerResponse)
 		cpu.EnableDebugger(request, response)
 
-		gdb.Listen(1234, request, response)
+		go gdb.Listen(1234, request, response)
 	}
 	cpu.Run()
 	fmt.Println("")
