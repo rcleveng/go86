@@ -8,7 +8,7 @@ import (
 
 	glog "github.com/golang/glog"
 	bios "go86.org/go86/bios"
-	go86 "go86.org/go86/cpu"
+	cpu "go86.org/go86/cpu"
 	deb "go86.org/go86/debugger"
 	dos "go86.org/go86/dos"
 )
@@ -21,12 +21,12 @@ func doinst(opcodes string) bool {
 	}
 
 	cs := 0x1000
-	c := go86.NewCpu(1024 * 1024)
+	c := cpu.NewCpu(1024 * 1024)
 	bios.NewBios(c)
 	dos.NewDos(c)
 	copy(c.Mem.At(cs, 0), d)
-	c.Sregs[go86.SREG_CS] = 0x1000
-	c.Sregs[go86.SREG_DS] = 0x1000
+	c.Sregs[cpu.SREG_CS] = 0x1000
+	c.Sregs[cpu.SREG_DS] = 0x1000
 	c.Ip = 0
 	c.Run()
 	return true
@@ -43,9 +43,9 @@ func dorun(filename string) bool {
 		exe.Etype = dos.IMAGE
 	}
 
-	cpu := go86.NewCpu(1024 * 1024)
-	bios.NewBios(cpu)
-	di := dos.NewDos(cpu)
+	c := cpu.NewCpu(1024 * 1024)
+	bios.NewBios(c)
+	di := dos.NewDos(c)
 	_, err = di.Load(exe)
 	if err != nil {
 		fmt.Println(err)
@@ -55,11 +55,11 @@ func dorun(filename string) bool {
 	if *dbg == "gdb" || *dbg == "lame" {
 		request := make(chan deb.DebuggerRequest)
 		response := make(chan deb.DebuggerResponse, 5)
-		deb.EnableDebugger(cpu, request, response)
+		deb.EnableDebugger(c, request, response)
 
 		go deb.Listen(1234, *dbg, request, response)
 	}
-	cpu.Run()
+	c.Run()
 	fmt.Println("")
 	return true
 }
