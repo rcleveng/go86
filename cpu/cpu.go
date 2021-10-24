@@ -945,6 +945,9 @@ type CPU struct {
 	Running  bool
 	Intrs    map[int]func(*CPU, int)
 	Debugger Debugger
+
+	// Currently executing instruction
+	Inst x86asm.Inst
 }
 
 func NewCpu(size int) *CPU {
@@ -1143,6 +1146,7 @@ func (cpu *CPU) RunOnce() bool {
 	inst, err := cpu.Decode()
 	cs := int(cpu.Sregs[SREG_CS])
 	ip := int(cpu.Ip)
+	cpu.Inst = inst
 
 	if err != nil {
 		log.Fatalf("Error decoding instruction at %d", cpu.Ip)

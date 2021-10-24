@@ -1,7 +1,10 @@
 package go86
 
 import (
+	"encoding/hex"
 	"fmt"
+	"net"
+	"strconv"
 	"sync"
 
 	log "github.com/golang/glog"
@@ -53,6 +56,7 @@ type DebuggerRequest struct {
 }
 
 type DebuggerResponse struct {
+	Ip   string
 	Text string
 }
 
@@ -106,14 +110,34 @@ func (d *DebuggerBackend) Step() bool {
 	if !d.ShouldBreak() {
 		return true
 	}
+
+	// Always send a response with the CS:IP
+	resp := DebuggerResponse{}
+	resp.Ip = fmt.Sprintf("%04X:%04X", d.cpu.Sregs[cpu.SREG_CS], d.cpu.Ip)
+
+	prefix := ""
+	if d.cpu.Inst.Prefix[0] != 0 {
+		prefix = fmt.Sprintf("[%v]", d.cpu.Inst.Prefix[0])
+	}
+	disam := d.cpu.Mem.At(int(d.cpu.Sregs[cpu.SREG_CS]), int(d.cpu.Ip))[:d.cpu.Inst.Len]
+	// 0E06:004E BE0010            MOV     SI,1000
+	resp.Text = fmt.Sprintf("%04X:%04X %-18s %s%s\n",
+		d.cpu.Sregs[cpu.SREG_CS], d.cpu.Ip, hex.EncodeToString(disam), prefix, d.cpu.Inst)
+
+	d.response <- resp
+
 	for r := range d.request {
 		log.Infoln("Handling Request in Step: ", r)
 		switch r.Cmd {
 		case CONTINUE:
 			d.mode = RUNNING
+			resp.Text = "Continuing"
+			d.response <- resp
 			return true
 		case DETACH:
 			d.cpu.Debugger = nil
+			resp.Text = "Detaching"
+			d.response <- resp
 			d.mode = RUNNING
 			return true
 		case STEP:
@@ -121,10 +145,19 @@ func (d *DebuggerBackend) Step() bool {
 			return true
 		case HALT:
 			d.cpu.Running = false
+			resp.Text = "Halting"
+			d.response <- resp
 			return false
 		case INFO:
 			resp := DebuggerResponse{}
-			resp.Text = fmt.Sprintf("AX: %x", d.cpu.Regs[cpu.REG_AX])
+			l1 := fmt.Sprintf("AX=%04X BX=%04X CX=%04X DX=%04X SP=%04X BP=%04X SI=%04X DI=%04X",
+				d.cpu.Regs[cpu.REG_AX], d.cpu.Regs[cpu.REG_BX], d.cpu.Regs[cpu.REG_CX], d.cpu.Regs[cpu.REG_DX],
+				d.cpu.Regs[cpu.REG_SP], d.cpu.Regs[cpu.REG_BP], d.cpu.Regs[cpu.REG_SI], d.cpu.Regs[cpu.REG_DI])
+			l2 := fmt.Sprintf("DS=%04X ES=%04X SS=%04X CS=%04X IP=%04X %s",
+				d.cpu.Sregs[cpu.SREG_DS], d.cpu.Sregs[cpu.SREG_ES],
+				d.cpu.Sregs[cpu.SREG_SS], d.cpu.Sregs[cpu.SREG_CS], d.cpu.Ip, d.cpu.FlagsToDebugString())
+
+			resp.Text = fmt.Sprintf("%s\n%s\n", l1, l2)
 			d.response <- resp
 		case HEARTBEAT:
 			resp := DebuggerResponse{}
@@ -157,6 +190,36 @@ func (d *DebuggerBackend) RemoveBreakpoint(sb Breakpoint) bool {
 	return false
 }
 
-func EnableDebugger(c *cpu.CPU, request chan DebuggerRequest, response chan DebuggerResponse) {
+func listen(port int, dbgtype string, request chan DebuggerRequest, response chan DebuggerResponse) error {
+	lsock, err := net.Listen("tcp4", ":"+strconv.Itoa(port))
+	if err != nil {
+		return err
+	}
+	defer lsock.Close()
+	log.Infof("Listening on port %v", port)
+
+	for {
+		conn, err := lsock.Accept()
+		if err != nil {
+			log.Infof("Got error from Accept: %v", err)
+			return err
+		}
+
+		if dbgtype == "gdb" {
+			session := GdbSession{conn: conn}
+			go session.HandleRequests(request)
+			go session.HandleResponses(response)
+		} else if dbgtype == "lame" {
+			session := LameSession{conn: conn}
+			go session.HandleRequests(request)
+			go session.HandleResponses(response)
+		} else {
+			panic("Unknown dbgtype: " + dbgtype)
+		}
+	}
+}
+
+func EnableDebugger(c *cpu.CPU, port int, dbgType string, request chan DebuggerRequest, response chan DebuggerResponse) {
 	c.Debugger = NewDebuggerBackend(c, request, response)
+	go listen(1234, dbgType, request, response)
 }

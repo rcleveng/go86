@@ -55,9 +55,8 @@ func dorun(filename string) bool {
 	if *dbg == "gdb" || *dbg == "lame" {
 		request := make(chan deb.DebuggerRequest)
 		response := make(chan deb.DebuggerResponse, 5)
-		deb.EnableDebugger(c, request, response)
+		deb.EnableDebugger(c, 1234, *dbg, request, response)
 
-		go deb.Listen(1234, *dbg, request, response)
 	}
 	c.Run()
 	fmt.Println("")
