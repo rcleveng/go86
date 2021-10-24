@@ -48,7 +48,7 @@ func (s GdbSession) HandleRequests(request chan DebuggerRequest) {
 func (s GdbSession) HandleResponses(response chan DebuggerResponse) {
 
 	for r := range response {
-		log.Infof("Got Debugger Response: '%s'", r)
+		log.Infof("Got Debugger Response: '%v'", r)
 		s.conn.Write([]byte("+\r\n"))
 	}
 

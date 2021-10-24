@@ -40,6 +40,7 @@ const (
 	INFO
 	HEARTBEAT
 	STEP
+	MEMORY
 	UNKNOWN_COMMAND
 )
 
@@ -50,14 +51,44 @@ const (
 	RUNNING
 )
 
+// Information about the memory block requested by the debugger
+type DebuggerMemoryRequest struct {
+	Seg    int
+	Off    int
+	Length int
+}
+
 type DebuggerRequest struct {
 	Cmd  DebugCommand
 	Data string
+	Mem  DebuggerMemoryRequest
 }
 
 type DebuggerResponse struct {
-	Ip   string
+	// Whatever free form text, should not be parsed at all
 	Text string
+
+	Ip    uint16
+	Flags uint16
+
+	// returned memory
+	Mem []byte
+
+	// registers
+	AX uint16
+	BX uint16
+	CX uint16
+	DX uint16
+	SP uint16
+	BP uint16
+	SI uint16
+	DI uint16
+
+	// segment registers
+	CS uint16
+	DS uint16
+	ES uint16
+	SS uint16
 }
 
 type DebuggerBackend struct {
@@ -104,6 +135,29 @@ func (d *DebuggerBackend) ShouldBreak() bool {
 	return d.interrupted
 }
 
+func CpuString(c *cpu.CPU) string {
+	l1 := fmt.Sprintf("AX=%04X BX=%04X CX=%04X DX=%04X SP=%04X BP=%04X SI=%04X DI=%04X",
+		c.Regs[cpu.REG_AX], c.Regs[cpu.REG_BX], c.Regs[cpu.REG_CX], c.Regs[cpu.REG_DX],
+		c.Regs[cpu.REG_SP], c.Regs[cpu.REG_BP], c.Regs[cpu.REG_SI], c.Regs[cpu.REG_DI])
+	l2 := fmt.Sprintf("DS=%04X ES=%04X SS=%04X CS=%04X IP=%04X %s",
+		c.Sregs[cpu.SREG_DS], c.Sregs[cpu.SREG_ES],
+		c.Sregs[cpu.SREG_SS], c.Sregs[cpu.SREG_CS], c.Ip, c.FlagsToDebugString())
+
+	return fmt.Sprintf("%s\n%s\n", l1, l2)
+}
+
+// Returns the next instruction as a disasmembled string
+// Example: 0E06:004E BE0010            MOV     SI,1000
+func DisasmString(c *cpu.CPU) string {
+	prefix := ""
+	if c.Inst.Prefix[0] != 0 {
+		prefix = fmt.Sprintf("[%v]", c.Inst.Prefix[0])
+	}
+	disam := c.Mem.At(int(c.Sregs[cpu.SREG_CS]), int(c.Ip))[:c.Inst.Len]
+	return fmt.Sprintf("%04X:%04X %-18s %s%s\n",
+		c.Sregs[cpu.SREG_CS], c.Ip, hex.EncodeToString(disam), prefix, c.Inst)
+}
+
 func (d *DebuggerBackend) Step() bool {
 	log.V(1).Infof("[%04X:%04X] Step", d.cpu.Sregs[cpu.SREG_CS], d.cpu.Ip)
 	// Handle any debugger requests first
@@ -111,19 +165,11 @@ func (d *DebuggerBackend) Step() bool {
 		return true
 	}
 
-	// Always send a response with the CS:IP
+	// Send a basic response with just the next set of instructions disasmembled
 	resp := DebuggerResponse{}
-	resp.Ip = fmt.Sprintf("%04X:%04X", d.cpu.Sregs[cpu.SREG_CS], d.cpu.Ip)
-
-	prefix := ""
-	if d.cpu.Inst.Prefix[0] != 0 {
-		prefix = fmt.Sprintf("[%v]", d.cpu.Inst.Prefix[0])
-	}
-	disam := d.cpu.Mem.At(int(d.cpu.Sregs[cpu.SREG_CS]), int(d.cpu.Ip))[:d.cpu.Inst.Len]
-	// 0E06:004E BE0010            MOV     SI,1000
-	resp.Text = fmt.Sprintf("%04X:%04X %-18s %s%s\n",
-		d.cpu.Sregs[cpu.SREG_CS], d.cpu.Ip, hex.EncodeToString(disam), prefix, d.cpu.Inst)
-
+	resp.Ip = d.cpu.Ip
+	resp.Flags = d.cpu.Flags
+	resp.Text = DisasmString(d.cpu)
 	d.response <- resp
 
 	for r := range d.request {
@@ -149,18 +195,27 @@ func (d *DebuggerBackend) Step() bool {
 			d.response <- resp
 			return false
 		case INFO:
-			resp := DebuggerResponse{}
-			l1 := fmt.Sprintf("AX=%04X BX=%04X CX=%04X DX=%04X SP=%04X BP=%04X SI=%04X DI=%04X",
-				d.cpu.Regs[cpu.REG_AX], d.cpu.Regs[cpu.REG_BX], d.cpu.Regs[cpu.REG_CX], d.cpu.Regs[cpu.REG_DX],
-				d.cpu.Regs[cpu.REG_SP], d.cpu.Regs[cpu.REG_BP], d.cpu.Regs[cpu.REG_SI], d.cpu.Regs[cpu.REG_DI])
-			l2 := fmt.Sprintf("DS=%04X ES=%04X SS=%04X CS=%04X IP=%04X %s",
-				d.cpu.Sregs[cpu.SREG_DS], d.cpu.Sregs[cpu.SREG_ES],
-				d.cpu.Sregs[cpu.SREG_SS], d.cpu.Sregs[cpu.SREG_CS], d.cpu.Ip, d.cpu.FlagsToDebugString())
+			resp.AX = d.cpu.Regs[cpu.REG_AX]
+			resp.BX = d.cpu.Regs[cpu.REG_BX]
+			resp.CX = d.cpu.Regs[cpu.REG_CX]
+			resp.DX = d.cpu.Regs[cpu.REG_DX]
+			resp.SP = d.cpu.Regs[cpu.REG_SP]
+			resp.BP = d.cpu.Regs[cpu.REG_BP]
+			resp.SI = d.cpu.Regs[cpu.REG_SI]
+			resp.DI = d.cpu.Regs[cpu.REG_DI]
 
-			resp.Text = fmt.Sprintf("%s\n%s\n", l1, l2)
+			resp.CS = d.cpu.Sregs[cpu.SREG_CS]
+			resp.DS = d.cpu.Sregs[cpu.SREG_DS]
+			resp.ES = d.cpu.Sregs[cpu.SREG_ES]
+			resp.SS = d.cpu.Sregs[cpu.SREG_SS]
+
+			resp.Text = CpuString(d.cpu)
+			d.response <- resp
+		case MEMORY:
+			resp.Mem = d.cpu.Mem.At(r.Mem.Seg, r.Mem.Off)[:r.Mem.Length]
+			resp.Text = hex.EncodeToString(resp.Mem)
 			d.response <- resp
 		case HEARTBEAT:
-			resp := DebuggerResponse{}
 			resp.Text = "Heartbeat"
 			d.response <- resp
 		default:
