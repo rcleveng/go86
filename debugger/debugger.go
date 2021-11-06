@@ -276,5 +276,5 @@ func listen(port int, dbgtype string, request chan DebuggerRequest, response cha
 
 func EnableDebugger(c *cpu.CPU, port int, dbgType string, request chan DebuggerRequest, response chan DebuggerResponse) {
 	c.Debugger = NewDebuggerBackend(c, request, response)
-	go listen(1234, dbgType, request, response)
+	go listen(port, dbgType, request, response)
 }

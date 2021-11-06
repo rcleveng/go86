@@ -13,6 +13,14 @@ import (
 	dos "go86.org/go86/dos"
 )
 
+var (
+	dbg          = flag.String("dbg", "none", "Enable and specifies the type of debugger.  Values are: none, gdb, lame")
+	port         = flag.Int("port", 2159, "TCP/IP port to listen on for the debugger")
+	runcmd       = flag.NewFlagSet("run", flag.ExitOnError)
+	instcmd      = flag.NewFlagSet("inst", flag.ExitOnError)
+	runForceType = runcmd.Bool("image", false, "load binary as binary image instead of COM or EXE")
+)
+
 func doinst(opcodes string) bool {
 	fmt.Printf("OpCodes: [%s]\n\n", opcodes)
 	d, err := hex.DecodeString(opcodes)
@@ -55,20 +63,13 @@ func dorun(filename string) bool {
 	if *dbg == "gdb" || *dbg == "lame" {
 		request := make(chan deb.DebuggerRequest)
 		response := make(chan deb.DebuggerResponse, 5)
-		deb.EnableDebugger(c, 1234, *dbg, request, response)
+		deb.EnableDebugger(c, *port, *dbg, request, response)
 
 	}
 	c.Run()
 	fmt.Println("")
 	return true
 }
-
-var (
-	dbg          = flag.String("dbg", "none", "Enable and specifies the type of debugger.  Values are: none, gdb, lame")
-	runcmd       = flag.NewFlagSet("run", flag.ExitOnError)
-	instcmd      = flag.NewFlagSet("inst", flag.ExitOnError)
-	runForceType = runcmd.Bool("image", false, "load binary as binary image instead of COM or EXE")
-)
 
 func showHelp() {
 	fmt.Println(`
