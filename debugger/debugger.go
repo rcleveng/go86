@@ -34,21 +34,31 @@ func (b Breakpoint) ShouldBreak(c *cpu.CPU) bool {
 type DebugCommand int
 
 const (
-	CONTINUE = iota
+	CONTINUE DebugCommand = iota
 	DETACH
 	HALT
 	INFO
 	HEARTBEAT
 	STEP
 	MEMORY
+	STOP_REASON
 	UNKNOWN_COMMAND
 )
 
 type DebuggerMode int8
 
 const (
-	STEPPING = iota
+	STEPPING DebuggerMode = iota
 	RUNNING
+)
+
+type DebugReponseType int
+
+const (
+	OK DebugReponseType = iota
+	VERBATIM
+	STOP_REPLY
+	STEP_NOTIFICATION
 )
 
 // Information about the memory block requested by the debugger
@@ -59,19 +69,28 @@ type DebuggerMemoryRequest struct {
 }
 
 type DebuggerRequest struct {
-	Cmd  DebugCommand
-	Data string
-	Mem  DebuggerMemoryRequest
+	Cmd DebugCommand
+	// The raw command text that triggered this debugger request
+	RawCmdText string
+	Data       string
+	Mem        DebuggerMemoryRequest
 }
 
 type DebuggerResponse struct {
+	Type DebugReponseType
+	// The command that necessiated this response
+	Cmd DebugCommand
+	// The raw command text that necessiated this debugger response
+	RawCmdText string
+
 	// Whatever free form text, should not be parsed at all
 	Text string
 
+	// CPU State
 	Ip    uint16
 	Flags uint16
 
-	// returned memory
+	// returned memory,  the first position of the slice is the start of the range requested.
 	Mem []byte
 
 	// registers
@@ -89,6 +108,11 @@ type DebuggerResponse struct {
 	DS uint16
 	ES uint16
 	SS uint16
+
+	// Current thread ID (if needed)
+	ThreadId int
+	// Last signal number that caused the program to halt.
+	Signal int
 }
 
 type DebuggerBackend struct {
@@ -167,33 +191,56 @@ func (d *DebuggerBackend) Step() bool {
 
 	// Send a basic response with just the next set of instructions disasmembled
 	resp := DebuggerResponse{}
+	resp.Type = STEP_NOTIFICATION
+	resp.Cmd = STEP
 	resp.Ip = d.cpu.Ip
 	resp.Flags = d.cpu.Flags
 	resp.Text = DisasmString(d.cpu)
 	d.response <- resp
 
+	resp.Type = OK
+
 	for r := range d.request {
 		log.Infoln("Handling Request in Step: ", r)
+		resp := DebuggerResponse{}
+		resp.Cmd = r.Cmd
+		resp.RawCmdText = r.RawCmdText
+		resp.Ip = d.cpu.Ip
+		resp.Flags = d.cpu.Flags
 		switch r.Cmd {
 		case CONTINUE:
 			d.mode = RUNNING
 			resp.Text = "Continuing"
 			d.response <- resp
+			resp.Signal = 0
 			return true
 		case DETACH:
 			d.cpu.Debugger = nil
 			resp.Text = "Detaching"
 			d.response <- resp
 			d.mode = RUNNING
+			resp.Signal = 0
 			return true
 		case STEP:
+			resp.Type = STEP_NOTIFICATION
 			d.mode = STEPPING
+			resp.Signal = 5
+			resp.Text = DisasmString(d.cpu)
+			d.response <- resp
 			return true
 		case HALT:
+			resp.Type = STOP_REPLY
 			d.cpu.Running = false
 			resp.Text = "Halting"
+			resp.Signal = 5
 			d.response <- resp
 			return false
+		case STOP_REASON:
+			resp.Type = STOP_REPLY
+			resp.Text = "Stop Reason"
+			resp.ThreadId = 0
+			resp.Signal = 5
+			d.response <- resp
 		case INFO:
 			resp.AX = d.cpu.Regs[cpu.REG_AX]
 			resp.BX = d.cpu.Regs[cpu.REG_BX]
@@ -210,6 +257,8 @@ func (d *DebuggerBackend) Step() bool {
 			resp.SS = d.cpu.Sregs[cpu.SREG_SS]
 
 			resp.Text = CpuString(d.cpu)
+			resp.ThreadId = 0
+			resp.Signal = 5
 			d.response <- resp
 		case MEMORY:
 			resp.Mem = d.cpu.Mem.At(r.Mem.Seg, r.Mem.Off)[:r.Mem.Length]
@@ -219,7 +268,9 @@ func (d *DebuggerBackend) Step() bool {
 			resp.Text = "Heartbeat"
 			d.response <- resp
 		default:
-			log.Warningln("Inknown request: ", r)
+			log.Warningln("Unknown request: ", r)
+			resp.Text = "Unknown request" + r.RawCmdText
+			d.response <- resp
 		}
 	}
 
