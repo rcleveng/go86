@@ -152,18 +152,11 @@ func (s GdbSession) HandleResponses(response chan DebuggerResponse) {
 	for r := range response {
 		log.Infof("GDB: Got Debugger Response: '%v': cmd:'%s'; all '%v'", r.Type, r.RawCmdText, r)
 		s.WriteAck()
-		switch r.Type {
-		case STOP_REPLY:
-			if r.RawCmdText == "?" {
-				log.Infoln("Sending a stop reply")
-				s.WriteResponse(fmt.Sprintf("S%02d", r.Signal))
-			}
-		case OK:
-			if r.Cmd != STEP {
-				s.WriteResponse("")
-			}
-		case STEP_NOTIFICATION:
+		switch r.Cmd {
+		case STEPPED, INFO, HEARTBEAT:
 			//
+		case CONTINUE, HALT, STOP_REASON:
+			s.WriteResponse(fmt.Sprintf("S%02d", r.Signal))
 		default:
 			log.Warningln("Unhandled response type: ", r.Type)
 			s.WriteResponse("")

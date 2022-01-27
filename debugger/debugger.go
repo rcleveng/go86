@@ -39,7 +39,10 @@ const (
 	HALT
 	INFO
 	HEARTBEAT
+	// Command to single step
 	STEP
+	// Stepped automatically
+	STEPPED
 	MEMORY
 	STOP_REASON
 	UNKNOWN_COMMAND
@@ -53,13 +56,6 @@ const (
 )
 
 type DebugReponseType int
-
-const (
-	OK DebugReponseType = iota
-	VERBATIM
-	STOP_REPLY
-	STEP_NOTIFICATION
-)
 
 // Information about the memory block requested by the debugger
 type DebuggerMemoryRequest struct {
@@ -191,14 +187,11 @@ func (d *DebuggerBackend) Step() bool {
 
 	// Send a basic response with just the next set of instructions disasmembled
 	resp := DebuggerResponse{}
-	resp.Type = STEP_NOTIFICATION
 	resp.Cmd = STEP
 	resp.Ip = d.cpu.Ip
 	resp.Flags = d.cpu.Flags
 	resp.Text = DisasmString(d.cpu)
 	d.response <- resp
-
-	resp.Type = OK
 
 	for r := range d.request {
 		log.Infoln("Handling Request in Step: ", r)
@@ -222,21 +215,18 @@ func (d *DebuggerBackend) Step() bool {
 			resp.Signal = 0
 			return true
 		case STEP:
-			resp.Type = STEP_NOTIFICATION
 			d.mode = STEPPING
 			resp.Signal = 5
 			resp.Text = DisasmString(d.cpu)
 			d.response <- resp
 			return true
 		case HALT:
-			resp.Type = STOP_REPLY
 			d.cpu.Running = false
 			resp.Text = "Halting"
 			resp.Signal = 5
 			d.response <- resp
 			return false
 		case STOP_REASON:
-			resp.Type = STOP_REPLY
 			resp.Text = "Stop Reason"
 			resp.ThreadId = 0
 			resp.Signal = 5
