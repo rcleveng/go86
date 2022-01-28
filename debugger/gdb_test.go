@@ -7,8 +7,8 @@ import (
 func TestCreatePacketSmoke(t *testing.T) {
 	s := CreatePacket("AAAA")
 
-	if s != "$AAAA#4" {
-		t.Errorf("Error '%s' was not expected", s)
+	if s != "$AAAA#04" {
+		t.Errorf("Error '%s' was not expected, expected '$AAAA#04'", s)
 	}
 }
 

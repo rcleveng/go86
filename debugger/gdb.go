@@ -54,7 +54,7 @@ func (s GdbSession) HandleQueryRequest(request chan DebuggerRequest, data string
 	}
 	if strings.HasPrefix(data, "qSupported:") {
 		sup := strings.Split(data[11:], ";")
-		log.Infof("Supported: '%V'", sup)
+		log.Infof("Supported: '%#v'", sup)
 		request <- req
 		return
 	}
