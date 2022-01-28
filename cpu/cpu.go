@@ -15,6 +15,8 @@ type Debugger interface {
 	Intr() bool
 }
 
+// Constants to define the non-segment register mapping between its name
+// and the correspoding index in the cpu.Regs array.
 const (
 	REG_AX = iota
 	REG_CX
@@ -43,6 +45,8 @@ const (
 	REG_BH
 )
 
+// Constants to define the segment register mapping between its name
+// and the corresponding index in the cpu.Sregs array.
 const (
 	SREG_ES = iota
 	SREG_CS
@@ -51,7 +55,8 @@ const (
 	maxSegs
 )
 
-// Flags
+// Constants to define the bit value for each x86 Flags.
+// The full set of flags are stored in the cpu.Flags memeber.
 const (
 	CF uint16 = 1 << iota
 	_  uint16 = 1 << iota
@@ -67,6 +72,8 @@ const (
 	OF uint16 = 1 << iota
 )
 
+// Mapping of the golang's definition of a register and the
+// index value used to refer to it in Regs or Sregs.
 var regnums = map[x86asm.Reg]int{
 	x86asm.AH: REG_AH,
 	x86asm.BH: REG_BH,
@@ -94,18 +101,20 @@ var regnums = map[x86asm.Reg]int{
 	x86asm.SS: SREG_SS,
 }
 
-// Map of Op name to function
+// Map of Op name to function that implements executing that opcode.
 var opcodes = make(map[x86asm.Op]func(*CPU, x86asm.Inst))
 
 // Good SO posts for flags:
 // https://stackoverflow.com/questions/51326423/how-to-calculate-the-auxiliary-flag-status-in-x86-assembly
 // https://stackoverflow.com/questions/791991/about-assembly-cfcarry-and-ofoverflow-flag
 
+// Unconditionally clears flag f
 func (cpu *CPU) ClearFlag(f uint16) {
 	// This is cool
 	cpu.Flags &^= f
 }
 
+// Sets or clears the flag f based on cond.
 func (cpu *CPU) SetFlagIf(f uint16, cond bool) {
 	if cond {
 		cpu.Flags |= f
@@ -114,6 +123,7 @@ func (cpu *CPU) SetFlagIf(f uint16, cond bool) {
 	}
 }
 
+// Writes either the on or off value of flag to sb.
 func (cpu *CPU) WriteFlag(sb *strings.Builder, flag uint16, on string, off string) {
 	if (cpu.Flags & flag) != 0 {
 		sb.WriteString(on)
@@ -123,6 +133,9 @@ func (cpu *CPU) WriteFlag(sb *strings.Builder, flag uint16, on string, off strin
 	sb.WriteString(" ")
 }
 
+// Returns a string in the canonical shorthand format for the flags.  The
+// format is upper case letters for a flag being on, lower case otherwise.
+// Example: "O d i S z a p c t"
 func (cpu *CPU) FlagsToString() string {
 	var sb strings.Builder
 	cpu.WriteFlag(&sb, OF, "O", "o")
@@ -137,6 +150,10 @@ func (cpu *CPU) FlagsToString() string {
 	return sb.String()
 }
 
+// Returns a string in the canonical CodeView format for the flags.  The
+// format is upper case letters for a flag being on, lower case otherwise.
+// See https://www.csee.umbc.edu/courses/undergraduate/CMSC211/fall01/burt/tech_help/flags.html
+// Example: "OV UP DI NG NZ NA PO NC"
 func (cpu *CPU) FlagsToDebugString() string {
 	var sb strings.Builder
 	cpu.WriteFlag(&sb, OF, "OV", "NV")
@@ -150,6 +167,9 @@ func (cpu *CPU) FlagsToDebugString() string {
 	return sb.String()
 }
 
+// Update the Zero, Sign, and Parity flags where result is the result of an
+// instruction execution and numbits is either 8 or 16 depending on the
+// instruction.
 func (cpu *CPU) SetFlagsZSP(result uint, numbits int) {
 	if numbits == 8 {
 		cpu.SetFlagIf(SF, (result&0x80) != 0)
@@ -163,6 +183,9 @@ func (cpu *CPU) SetFlagsZSP(result uint, numbits int) {
 	cpu.SetFlagIf(PF, (count&0x01) == 0)
 }
 
+// Update all of the flags where result is the result of an addition
+// instruction using the values for the result, source and destintationm operands
+// and numbits is either 8 or 16 depending on the instruction.
 func (cpu *CPU) SetFlagsAdd(res, src, dst uint, bits int) {
 	cpu.SetFlagIf(CF, res>>bits != 0)
 	if bits == 8 {
@@ -174,6 +197,9 @@ func (cpu *CPU) SetFlagsAdd(res, src, dst uint, bits int) {
 	cpu.SetFlagsZSP(res, bits)
 }
 
+// Update all of the flags where result is the result of an subtraction
+// instruction using the values for the result, source and destintationm operands
+// and numbits is either 8 or 16 depending on the instruction.
 func (cpu *CPU) SetFlagsSub(res, src, dst uint, numbits int) {
 	if numbits == 8 {
 		cpu.SetFlagIf(CF, res&0x100 == 0x100)
@@ -186,10 +212,12 @@ func (cpu *CPU) SetFlagsSub(res, src, dst uint, numbits int) {
 	cpu.SetFlagsZSP(res, numbits)
 }
 
-// Used in CMP, where just PSZ survives
+// Helper function, used in CMP, where just PSZ survives
 func (cpu *CPU) ClearFlagsCOA() {
 	cpu.Flags &^= (AF | CF | OF)
 }
+
+/** Instructions are below here */
 
 // Good SO post on bits and flags
 // https://stackoverflow.com/questions/51326423/how-to-calculate-the-auxiliary-flag-status-in-x86-assembly
@@ -264,6 +292,19 @@ func (cpu *CPU) intr(inst x86asm.Inst) {
 	}
 }
 
+// Returns the effective address for the argument specifying the necessary components.
+//
+// The offset part of a memory address can be specified directly as a static value
+// (called a displacement) or through an address computation made up of one or more
+// of the following components:
+//
+// * Displacement — An 8-, 16-, or 32-bit value.
+// * Base — The value in a general-purpose register.
+// * Index — The value in a general-purpose register.
+// * Scale factor — A value of 2, 4, or 8 that is multiplied by the index value.
+// * The offset which results from adding these components is called an effective address.
+//   Each of these components can have either a positive or negative (2s complement) value,
+//   with the exception of the scaling factor.
 func (cpu *CPU) effectiveAddress(arg x86asm.Arg) uint {
 	a := arg.(x86asm.Mem)
 
@@ -866,6 +907,7 @@ func (cpu *CPU) test(inst x86asm.Inst) {
 	cpu.SetFlagsZSP(dest, bits)
 }
 
+// Construct the table of opcodes to functions that implement them.
 func init() {
 	opcodes[x86asm.ADD] = (*CPU).add
 	opcodes[x86asm.AND] = (*CPU).and
@@ -935,14 +977,22 @@ func init() {
 	opcodes[x86asm.XOR] = (*CPU).xor
 }
 
+// Represents the state of an 8086 CPU.
 type CPU struct {
-	Mem   *Memory
-	Regs  [maxRegs]uint16
+	// Pointer to the system
+	Mem *Memory
+	// Set of registers (AX, BX, CX, etc...)
+	Regs [maxRegs]uint16
+	// Set of segment registers (CS, DS, etc...)
 	Sregs [maxSegs]uint16
+	// CPU Flags (overflow, zero, etc)
 	Flags uint16
-	Ip    uint16
+	// Current instruction pointer to execute relative to the code segment (CS).
+	Ip uint16
 
-	Running  bool
+	Running bool
+	// Interrupt map for interrupts which do not exist as 8086 code contained
+	// within the CPU's memory.
 	Intrs    map[int]func(*CPU, int)
 	Debugger Debugger
 
