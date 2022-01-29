@@ -1047,6 +1047,8 @@ func (cpu *CPU) PutReg(reg x86asm.Reg, val uint) {
 	}
 }
 
+// Returns the prefix to use when addressing the effective address for this
+// instruction.
 func (cpu *CPU) segForEA(a x86asm.Mem, inst x86asm.Inst) uint16 {
 	// Check for predix overrides
 	if inst.Prefix[0] != 0 {
@@ -1075,7 +1077,7 @@ func (cpu *CPU) segForEA(a x86asm.Mem, inst x86asm.Inst) uint16 {
 	return cpu.Sregs[segnum]
 }
 
-// size of instruction. 1 (8 bit) or 2 (16-bit)
+// Returns the size of instruction, either 8 for 8 bit or 16 for 16-bit.
 func instbits(inst x86asm.Inst) int {
 	if inst.MemBytes > 0 {
 		return inst.MemBytes * 8
@@ -1103,6 +1105,11 @@ func instbits(inst x86asm.Inst) int {
 	}
 }
 
+// N.B. The ModR/M byte is used when a register or memory operand is required (used).
+// For instructions that don't have a register or memory operand, the value may be
+// encoded as an immediate value (Imm) as part of the opcode stream.
+
+// Gets the value specified by the ModR/M for the given argument and instruction.
 func (cpu *CPU) Rmm(a x86asm.Arg, inst x86asm.Inst) uint {
 	switch a := a.(type) {
 	case x86asm.Reg:
@@ -1122,6 +1129,8 @@ func (cpu *CPU) Rmm(a x86asm.Arg, inst x86asm.Inst) uint {
 	}
 }
 
+// Puts (sets) the value val to the location specified by the ModR/M for the given
+// argument and instruction.
 func (cpu *CPU) PutRmm(a x86asm.Arg, inst x86asm.Inst, val uint) {
 	switch a := a.(type) {
 	case x86asm.Reg:
@@ -1153,17 +1162,11 @@ func (cpu *CPU) DoInst(inst x86asm.Inst, origIp uint16) bool {
 	log.V(4).Infof("I: %s, 2: %s [DS: %d][MB: %d]\n", inst.Args[0], inst.Args[1],
 		inst.DataSize, inst.MemBytes)
 
-	switch inst.Opcode >> 24 {
-	case 0x36:
-		log.Fatalf("Whut?")
-		// TO DO SOMETHING
-
-	default:
-		if opcodes[inst.Op] == nil {
-			return false
-		}
-		opcodes[inst.Op](cpu, inst)
+	if opcodes[inst.Op] == nil {
+		log.Warningf("Missing opcode function for opcode: %v", inst.Op)
+		return false
 	}
+	opcodes[inst.Op](cpu, inst)
 	// Log regs after the instruction executes
 	// AX=0005 BX=FF00 CX=0000 DX=0000 SP=0800 BP=0000 SI=1000 DI=0F18
 	// DS=0DF6 ES=0DF6 SS=0F4C CS=0E06 IP=0051 NV UP EI NG NZ NA PE NC
