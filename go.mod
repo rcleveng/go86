@@ -10,5 +10,6 @@ require (
 
 require (
 	github.com/google/go-cmp v0.5.6 // indirect
+	github.com/jstemmer/go-junit-report v0.9.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 )
