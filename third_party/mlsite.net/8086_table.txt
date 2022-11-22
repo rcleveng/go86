@@ -36,7 +36,7 @@
 23	AND		Gv	Ev
 24	AND		AL	Ib
 25	AND		eAX	Iv
-26	ES:
+26	ES
 27	DAA
 28	SUB		Eb	Gb
 29	SUB		Ev	Gv
@@ -44,7 +44,7 @@
 2B	SUB		Gv	Ev
 2C	SUB		AL	Ib
 2D	SUB		eAX	Iv
-2E	CS:
+2E	CS
 2F	DAS
 30	XOR		Eb	Gb
 31	XOR		Ev	Gv
@@ -52,7 +52,7 @@
 33	XOR		Gv	Ev
 34	XOR		AL	Ib
 35	XOR		eAX	Iv
-36	SS:
+36	SS
 37	AAA
 38	CMP		Eb	Gb
 39	CMP		Ev	Gv
@@ -60,7 +60,7 @@
 3B	CMP		Gv	Ev
 3C	CMP		AL	Ib
 3D	CMP		eAX	Iv
-3E	DS:
+3E	DS
 3F	AAS
 40	INC		eAX
 41	INC		eCX
