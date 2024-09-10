@@ -204,3 +204,16 @@ func (cpu *CPU) subEbIb(modrm *ModRM) error {
 	modrm.SetRm8(cpu, diff)
 	return nil
 }
+
+func (cpu *CPU) subEvIb(modrm *ModRM) error {
+	left := modrm.GetRm16(cpu)
+	imm8, err := cpu.Fetch8()
+	if err != nil {
+		return err
+	}
+	right := uint(int16(imm8))
+	diff := left - right
+	cpu.Flags.SetFlagsSub8(diff, left, right)
+	modrm.SetRm16(cpu, diff)
+	return nil
+}

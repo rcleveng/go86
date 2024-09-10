@@ -71,12 +71,23 @@ func (cpu *CPU) orEvIv(modrm *ModRM) error {
 }
 
 func (cpu *CPU) orEbIb(modrm *ModRM) error {
-	left := cpu.Regs.GetReg8(Reg8(modrm.Reg))
+	left := modrm.GetRm8(cpu)
 	imm8, err := cpu.Fetch8()
 	if err != nil {
 		return err
 	}
 	modrm.SetR8(cpu, left|uint(imm8))
+	return nil
+}
+
+// orEvIb
+func (cpu *CPU) orEvIb(modrm *ModRM) error {
+	left := modrm.GetRm16(cpu)
+	imm8, err := cpu.Fetch8()
+	if err != nil {
+		return err
+	}
+	modrm.SetRm16(cpu, left|uint(int16(imm8)))
 	return nil
 }
 
@@ -156,9 +167,17 @@ func (cpu *CPU) andEbIb(modrm *ModRM) error {
 	if err != nil {
 		return err
 	}
-	sum := left + uint(imm8)
-	cpu.Flags.SetFlagsAdd8(sum, left, uint(imm8))
-	modrm.SetRm8(cpu, sum)
+	modrm.SetRm8(cpu, left&uint(imm8))
+	return nil
+}
+
+func (cpu *CPU) andEvIb(modrm *ModRM) error {
+	left := modrm.GetRm16(cpu)
+	imm8, err := cpu.Fetch8()
+	if err != nil {
+		return err
+	}
+	modrm.SetRm16(cpu, left&uint(int16(imm8)))
 	return nil
 }
 
@@ -228,7 +247,7 @@ func (cpu *CPU) xorEvIv(modrm *ModRM) error {
 	if err != nil {
 		return err
 	}
-	modrm.SetR16(cpu, left^uint(imm16))
+	modrm.SetRm16(cpu, left^uint(imm16))
 	return nil
 }
 
@@ -240,6 +259,16 @@ func (cpu *CPU) xorEbIb(modrm *ModRM) error {
 		return err
 	}
 	modrm.SetRm8(cpu, left^uint(imm8))
+	return nil
+}
+
+func (cpu *CPU) xorEvIb(modrm *ModRM) error {
+	left := modrm.GetRm16(cpu)
+	imm8, err := cpu.Fetch8()
+	if err != nil {
+		return err
+	}
+	modrm.SetRm16(cpu, left^uint(int16(imm8)))
 	return nil
 }
 
@@ -320,7 +349,6 @@ func (cpu *CPU) cmpEvIv(modrm *ModRM) error {
 	return nil
 }
 
-// generate cmpEbIb
 func (cpu *CPU) cmpEbIb(modrm *ModRM) error {
 	imm8, err := cpu.Fetch8()
 	if err != nil {
@@ -329,6 +357,18 @@ func (cpu *CPU) cmpEbIb(modrm *ModRM) error {
 	left := modrm.GetRm8(cpu)
 	diff := left - uint(imm8)
 	cpu.Flags.SetFlagsSub8(diff, left, uint(imm8))
+	return nil
+}
+
+func (cpu *CPU) cmpEvIb(modrm *ModRM) error {
+	imm8, err := cpu.Fetch8()
+	if err != nil {
+		return err
+	}
+	left := modrm.GetRm16(cpu)
+	right := uint(int16(imm8))
+	diff := left - right
+	cpu.Flags.SetFlagsSub16(diff, left, right)
 	return nil
 }
 
