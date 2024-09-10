@@ -1,1221 +1,300 @@
 package go86
 
 import (
-	"encoding/hex"
 	"fmt"
-	"math/bits"
-	"strings"
 
 	log "github.com/golang/glog"
-	"golang.org/x/arch/x86/x86asm"
 )
 
+// Debugger is an interface for debugging the CPU.
 type Debugger interface {
 	Step() bool
 	Intr() bool
 }
 
-// Constants to define the non-segment register mapping between its name
-// and the correspoding index in the cpu.Regs array.
-const (
-	REG_AX = iota
-	REG_CX
-	REG_DX
-	REG_BX
-	REG_SP
-	REG_BP
-	REG_SI
-	REG_DI
-	maxRegs
-)
-
-// AL/AH shares space with AX
-const (
-	REG_AL = iota
-	REG_CL
-	REG_DL
-	REG_BL
-)
-
-// AL/AH shares space with AX
-const (
-	REG_AH = iota
-	REG_CH
-	REG_DH
-	REG_BH
-)
-
-// Constants to define the segment register mapping between its name
-// and the corresponding index in the cpu.Sregs array.
-const (
-	SREG_ES = iota
-	SREG_CS
-	SREG_SS
-	SREG_DS
-	maxSegs
-)
-
-// Constants to define the bit value for each x86 Flags.
-// The full set of flags are stored in the cpu.Flags memeber.
-const (
-	CF uint16 = 1 << iota
-	_  uint16 = 1 << iota
-	PF uint16 = 1 << iota
-	_  uint16 = 1 << iota
-	AF uint16 = 1 << iota
-	_  uint16 = 1 << iota
-	ZF uint16 = 1 << iota
-	SF uint16 = 1 << iota
-	TF uint16 = 1 << iota
-	IF uint16 = 1 << iota
-	DF uint16 = 1 << iota
-	OF uint16 = 1 << iota
-)
-
-// Mapping of the golang's definition of a register and the
-// index value used to refer to it in Regs or Sregs.
-var regnums = map[x86asm.Reg]int{
-	x86asm.AH: REG_AH,
-	x86asm.BH: REG_BH,
-	x86asm.CH: REG_CH,
-	x86asm.DH: REG_DH,
-
-	x86asm.AL: REG_AL,
-	x86asm.BL: REG_BL,
-	x86asm.CL: REG_CL,
-	x86asm.DL: REG_DL,
-
-	x86asm.AX: REG_AX,
-	x86asm.BX: REG_BX,
-	x86asm.CX: REG_CX,
-	x86asm.DX: REG_DX,
-
-	x86asm.BP: REG_BP,
-	x86asm.SI: REG_SI,
-	x86asm.SP: REG_SP,
-	x86asm.DI: REG_DI,
-
-	x86asm.CS: SREG_CS,
-	x86asm.DS: SREG_DS,
-	x86asm.ES: SREG_ES,
-	x86asm.SS: SREG_SS,
-}
-
-// Map of Op name to function that implements executing that opcode.
-var opcodes = make(map[x86asm.Op]func(*CPU, x86asm.Inst))
-
-// Good SO posts for flags:
-// https://stackoverflow.com/questions/51326423/how-to-calculate-the-auxiliary-flag-status-in-x86-assembly
-// https://stackoverflow.com/questions/791991/about-assembly-cfcarry-and-ofoverflow-flag
-
-// Unconditionally clears flag f
-func (cpu *CPU) ClearFlag(f uint16) {
-	// This is cool
-	cpu.Flags &^= f
-}
-
-// Sets or clears the flag f based on cond.
-func (cpu *CPU) SetFlagIf(f uint16, cond bool) {
-	if cond {
-		cpu.Flags |= f
-	} else {
-		cpu.Flags &^= f
-	}
-}
-
-// Writes either the on or off value of flag to sb.
-func (cpu *CPU) WriteFlag(sb *strings.Builder, flag uint16, on string, off string) {
-	if (cpu.Flags & flag) != 0 {
-		sb.WriteString(on)
-	} else {
-		sb.WriteString(off)
-	}
-	sb.WriteString(" ")
-}
-
-// Returns a string in the canonical shorthand format for the flags.  The
-// format is upper case letters for a flag being on, lower case otherwise.
-// Example: "O d i S z a p c t"
-func (cpu *CPU) FlagsToString() string {
-	var sb strings.Builder
-	cpu.WriteFlag(&sb, OF, "O", "o")
-	cpu.WriteFlag(&sb, DF, "D", "d")
-	cpu.WriteFlag(&sb, IF, "I", "i")
-	cpu.WriteFlag(&sb, SF, "S", "s")
-	cpu.WriteFlag(&sb, ZF, "Z", "z")
-	cpu.WriteFlag(&sb, AF, "A", "a")
-	cpu.WriteFlag(&sb, PF, "P", "p")
-	cpu.WriteFlag(&sb, CF, "C", "c")
-	cpu.WriteFlag(&sb, TF, "T", "t")
-	return sb.String()
-}
-
-// Returns a string in the canonical CodeView format for the flags.  The
-// format is upper case letters for a flag being on, lower case otherwise.
-// See https://www.csee.umbc.edu/courses/undergraduate/CMSC211/fall01/burt/tech_help/flags.html
-// Example: "OV UP DI NG NZ NA PO NC"
-func (cpu *CPU) FlagsToDebugString() string {
-	var sb strings.Builder
-	cpu.WriteFlag(&sb, OF, "OV", "NV")
-	cpu.WriteFlag(&sb, DF, "DN", "UP")
-	cpu.WriteFlag(&sb, IF, "EI", "DI")
-	cpu.WriteFlag(&sb, SF, "NG", "PL")
-	cpu.WriteFlag(&sb, ZF, "ZR", "NZ")
-	cpu.WriteFlag(&sb, AF, "AC", "NA")
-	cpu.WriteFlag(&sb, PF, "PE", "PO")
-	cpu.WriteFlag(&sb, CF, "CY", "NC")
-	return sb.String()
-}
-
-// Update the Zero, Sign, and Parity flags where result is the result of an
-// instruction execution and numbits is either 8 or 16 depending on the
-// instruction.
-func (cpu *CPU) SetFlagsZSP(result uint, numbits int) {
-	if numbits == 8 {
-		cpu.SetFlagIf(SF, (result&0x80) != 0)
-		cpu.SetFlagIf(ZF, (result&0xFF) == 0)
-	} else {
-		cpu.SetFlagIf(SF, (result&0x8000) != 0)
-		cpu.SetFlagIf(ZF, (result&0xFFFF) == 0)
-	}
-	// Yes. X86 only ever uses LSB for PF
-	count := bits.OnesCount8(uint8(result & 0xFF))
-	cpu.SetFlagIf(PF, (count&0x01) == 0)
-}
-
-// Update all of the flags where result is the result of an addition
-// instruction using the values for the result, source and destintationm operands
-// and numbits is either 8 or 16 depending on the instruction.
-func (cpu *CPU) SetFlagsAdd(res, src, dst uint, bits int) {
-	cpu.SetFlagIf(CF, res>>bits != 0)
-	if bits == 8 {
-		cpu.SetFlagIf(OF, (res^src)&(res^dst)&0x80 != 0)
-	} else {
-		cpu.SetFlagIf(OF, (res^src)&(res^dst)&0x8000 != 0)
-	}
-	cpu.SetFlagIf(AF, (res^src^dst)&0x10 != 0)
-	cpu.SetFlagsZSP(res, bits)
-}
-
-// Update all of the flags where result is the result of an subtraction
-// instruction using the values for the result, source and destintationm operands
-// and numbits is either 8 or 16 depending on the instruction.
-func (cpu *CPU) SetFlagsSub(res, src, dst uint, numbits int) {
-	if numbits == 8 {
-		cpu.SetFlagIf(CF, res&0x100 == 0x100)
-		cpu.SetFlagIf(OF, ((dst^src)&(res^dst)&0x80) != 0)
-	} else {
-		cpu.SetFlagIf(OF, ((dst^src)&(res^dst)&0x8000) != 0)
-		cpu.SetFlagIf(CF, res&0x10000 == 0x10000)
-	}
-	cpu.SetFlagIf(AF, (res^src^dst)&0x10 != 0)
-	cpu.SetFlagsZSP(res, numbits)
-}
-
-// Helper function, used in CMP, where just PSZ survives
-func (cpu *CPU) ClearFlagsCOA() {
-	cpu.Flags &^= (AF | CF | OF)
-}
-
-/** Instructions are below here */
-
-// Good SO post on bits and flags
-// https://stackoverflow.com/questions/51326423/how-to-calculate-the-auxiliary-flag-status-in-x86-assembly
-
-func (cpu *CPU) add(inst x86asm.Inst) {
-	src := cpu.Rmm(inst.Args[1], inst)
-	dst := cpu.Rmm(inst.Args[0], inst)
-	res := dst + src
-	cpu.PutRmm(inst.Args[0], inst, res)
-	cpu.SetFlagsAdd(res, src, dst, instbits(inst))
-}
-
-func (cpu *CPU) sub(inst x86asm.Inst) {
-	src := cpu.Rmm(inst.Args[1], inst)
-	dst := cpu.Rmm(inst.Args[0], inst)
-	res := dst - src
-	cpu.PutRmm(inst.Args[0], inst, res)
-	cpu.SetFlagsSub(res, src, dst, instbits(inst))
-}
-
-func (cpu *CPU) mov(inst x86asm.Inst) {
-	src := cpu.Rmm(inst.Args[1], inst)
-	cpu.PutRmm(inst.Args[0], inst, src)
-}
-
-// Push an argument onto the stack
-func (cpu *CPU) Push(val uint16) {
-	cpu.Regs[REG_SP] = cpu.Regs[REG_SP] - 2
-	seg := int(cpu.Sregs[SREG_SS])
-	off := int(cpu.Regs[REG_SP])
-	cpu.Mem.PutMem16(seg, off, val)
-	log.V(1).Infof("   PUSH: [%04X:%04X] = %04X", seg, off, val)
-}
-
-// Pop an argument off the stack
-func (cpu *CPU) Pop() (r uint16) {
-	seg := int(cpu.Sregs[SREG_SS])
-	off := int(cpu.Regs[REG_SP])
-	r = cpu.Mem.Mem16(seg, off)
-	log.V(1).Infof("   POP:%04X [%04X:%04X]", r, seg, off)
-	cpu.Regs[REG_SP] = cpu.Regs[REG_SP] + 2
-	return r
-}
-
-func (cpu *CPU) iret(inst x86asm.Inst) {
-	cpu.Ip = cpu.Pop()
-	cpu.Sregs[SREG_CS] = cpu.Pop()
-	cpu.Flags = cpu.Pop()
-}
-
-// Call an interrupt
-func (cpu *CPU) intr(inst x86asm.Inst) {
-	if inst.Args[0] != nil {
-		switch a := inst.Args[0].(type) {
-		case x86asm.Imm:
-			intrno := int(a)
-			if cpu.Intrs[intrno] != nil {
-				log.V(4).Infof("Call Internal Interrupt # 0x%X", intrno)
-				cpu.Intrs[intrno](cpu, intrno)
-				return
-			} else {
-				// Call memory based x86 interrupt code
-				cpu.Push(cpu.Flags)
-				cpu.Push(cpu.Sregs[SREG_CS])
-				cpu.Push(cpu.Ip)
-
-				// Update CS:IP from interrupt table
-				cpu.Ip = cpu.Mem.Mem16(0x0000, intrno*4)
-				cpu.Sregs[SREG_CS] = cpu.Mem.Mem16(0x0000, 2+(intrno*4))
-			}
-		}
-	}
-}
-
-// Returns the effective address for the argument specifying the necessary components.
-//
-// The offset part of a memory address can be specified directly as a static value
-// (called a displacement) or through an address computation made up of one or more
-// of the following components:
-//
-// * Displacement — An 8-, 16-, or 32-bit value.
-// * Base — The value in a general-purpose register.
-// * Index — The value in a general-purpose register.
-// * Scale factor — A value of 2, 4, or 8 that is multiplied by the index value.
-// * The offset which results from adding these components is called an effective address.
-//   Each of these components can have either a positive or negative (2s complement) value,
-//   with the exception of the scaling factor.
-func (cpu *CPU) effectiveAddress(arg x86asm.Arg) uint {
-	a := arg.(x86asm.Mem)
-
-	// Offset is effective address
-	off := uint(a.Disp & 0xFFFF)
-	if uint8(a.Base) != 0 {
-		off += cpu.Reg(a.Base)
-	}
-	if uint8(a.Index) != 0 {
-		off += cpu.Reg(a.Index)
-	}
-	return off
-}
-
-func (cpu *CPU) lea(inst x86asm.Inst) {
-	off := cpu.effectiveAddress(inst.Args[1])
-	cpu.PutRmm(inst.Args[0], inst, off)
-}
-
-func (cpu *CPU) jumprel(rel int32) {
-	// Go cast fun with uint16
-	if rel >= 0 {
-		cpu.Ip += uint16(rel)
-	} else {
-		cpu.Ip -= uint16(-rel)
-	}
-}
-
-func (cpu *CPU) jmp(inst x86asm.Inst) {
-	switch a := inst.Args[0].(type) {
-	case x86asm.Reg:
-		log.V(3).Infoln("JMP reg")
-		r := cpu.Rmm(a, inst)
-		cpu.Ip = uint16(r)
-	case x86asm.Rel:
-		log.V(3).Infoln("JMP rel")
-		rel := int32(inst.Args[0].(x86asm.Rel))
-		cpu.jumprel(rel)
-	case x86asm.Mem:
-		log.V(3).Infoln("JMP abs mem")
-		seg := int(cpu.segForEA(a, inst))
-		off := int(cpu.effectiveAddress(a))
-		cpu.Ip = cpu.Mem.Mem16(seg, off)
-	default:
-		panic(fmt.Sprintf("unknown type for a: %v", a))
-	}
-}
-
-func (cpu *CPU) ljmp(inst x86asm.Inst) {
-	switch a := inst.Args[0].(type) {
-	case x86asm.Mem:
-		log.V(3).Infoln("LJMP mem")
-		seg := int(cpu.segForEA(a, inst))
-		off := int(cpu.effectiveAddress(a))
-		cpu.Ip = cpu.Mem.Mem16(seg, off)
-		cpu.Sregs[SREG_CS] = cpu.Mem.Mem16(seg, off+2)
-	default:
-		panic(fmt.Sprintf("unknown type for a: %v", a))
-	}
-}
-
-func (cpu *CPU) jc(inst x86asm.Inst) {
-	rel := int32(inst.Args[0].(x86asm.Rel))
-	if rel == 0 {
-		// No jump, just bail
-		return
-	}
-
-	cond := false
-	switch inst.Op {
-	case x86asm.JA:
-		cond = cpu.Flags&(CF|ZF) == 0
-	case x86asm.JAE:
-		cond = cpu.Flags&CF == 0
-	case x86asm.JB:
-		cond = cpu.Flags&CF != 0
-	case x86asm.JBE:
-		cond = (cpu.Flags&CF != 0 || cpu.Flags&ZF != 0)
-	case x86asm.JCXZ:
-		cond = cpu.Regs[REG_CX] == 0
-	case x86asm.JE:
-		cond = cpu.Flags&ZF != 0
-	case x86asm.JG:
-		sf := cpu.Flags&SF != 0
-		of := cpu.Flags&OF != 0
-		zf := cpu.Flags&ZF != 0
-		cond = !zf && (sf == of)
-	case x86asm.JGE:
-		sf := cpu.Flags&SF != 0
-		of := cpu.Flags&OF != 0
-		cond = sf == of
-	case x86asm.JL:
-		sf := cpu.Flags&SF != 0
-		of := cpu.Flags&OF != 0
-		cond = sf != of
-	case x86asm.JLE:
-		sf := cpu.Flags&SF != 0
-		of := cpu.Flags&OF != 0
-		zf := cpu.Flags&ZF != 0
-		cond = zf || (sf != of)
-	case x86asm.JNE:
-		cond = cpu.Flags&ZF == 0
-	case x86asm.JNO:
-		cond = cpu.Flags&OF == 0
-	case x86asm.JNP:
-		cond = cpu.Flags&PF == 0
-	case x86asm.JNS:
-		cond = cpu.Flags&SF == 0
-	case x86asm.JO:
-		cond = cpu.Flags&OF != 0
-	case x86asm.JP:
-		cond = cpu.Flags&PF != 0
-	case x86asm.JS:
-		cond = cpu.Flags&SF != 0
-	}
-
-	if !cond {
-		// Jump condition, just bail
-		return
-	}
-	cpu.jumprel(rel)
-}
-
-func (cpu *CPU) loop(inst x86asm.Inst) {
-	rel := int32(inst.Args[0].(x86asm.Rel))
-	cpu.Regs[REG_CX]--
-	if cpu.Regs[REG_CX] != 0 {
-		cpu.jumprel(rel)
-	}
-}
-
-func (cpu *CPU) loope(inst x86asm.Inst) {
-	rel := int32(inst.Args[0].(x86asm.Rel))
-	cpu.Regs[REG_CX]--
-	if cpu.Regs[REG_CX] != 0 && (cpu.Flags&ZF) != 0 {
-		cpu.jumprel(rel)
-	}
-}
-
-func (cpu *CPU) loopne(inst x86asm.Inst) {
-	rel := int32(inst.Args[0].(x86asm.Rel))
-	cpu.Regs[REG_CX]--
-	if cpu.Regs[REG_CX] != 0 && (cpu.Flags&ZF) == 0 {
-		cpu.jumprel(rel)
-	}
-}
-
-func (cpu *CPU) call(inst x86asm.Inst) {
-	cpu.Push(cpu.Ip)
-	switch a := inst.Args[0].(type) {
-	case x86asm.Rel:
-		cpu.jumprel(int32(a))
-	default:
-		v := cpu.Rmm(inst.Args[0], inst)
-		cpu.jumprel(int32(v))
-	}
-}
-
-// FAR Call (9A and FF/3)
-func (cpu *CPU) lcall(inst x86asm.Inst) {
-	cpu.Push(cpu.Sregs[SREG_CS])
-	cpu.Push(cpu.Ip)
-	switch a := inst.Args[0].(type) {
-	case x86asm.Imm:
-		cpu.Sregs[SREG_CS] = uint16(a)
-		ip := uint16(inst.Args[1].(x86asm.Imm))
-		cpu.Ip = ip
-	case x86asm.Mem:
-		seg := int(cpu.segForEA(a, inst))
-		off := int(cpu.effectiveAddress(a))
-		cpu.Ip = cpu.Mem.Mem16(seg, off)
-		cpu.Sregs[SREG_CS] = cpu.Mem.Mem16(seg, off+2)
-	default:
-		panic(fmt.Sprintf("unknown type for a: %v", a))
-	}
-}
-
-func (cpu *CPU) inc(inst x86asm.Inst) {
-	r := cpu.Rmm(inst.Args[0], inst)
-	cpu.PutRmm(inst.Args[0], inst, r+1)
-}
-
-func (cpu *CPU) dec(inst x86asm.Inst) {
-	r := cpu.Rmm(inst.Args[0], inst)
-	cpu.PutRmm(inst.Args[0], inst, r-1)
-}
-
-func (cpu *CPU) scasbImpl(dst, src uint) {
-	// This is 8bit call, so clear the top half.
-	src &= 0x00ff
-	res := dst - src
-	cpu.SetFlagsSub(res, src, dst, 8)
-}
-
-func (cpu *CPU) scasb(inst x86asm.Inst) {
-	dst := cpu.Rmm(inst.Args[0], inst)
-
-	if inst.Prefix[0] == 0 {
-		src := cpu.Rmm(inst.Args[1], inst)
-		cpu.scasbImpl(dst, src)
-		return
-	}
-	seg := int(cpu.Sregs[SREG_ES])
-	for _, p := range inst.Prefix {
-		switch p {
-		case x86asm.PrefixREP:
-			for cx := cpu.Reg(x86asm.CX); cx > 0; cx-- {
-				di := int(cpu.Reg(x86asm.DI))
-				src := uint(cpu.Mem.Mem8(seg, di))
-				cpu.scasbImpl(dst, src)
-				if cpu.Flags&ZF == 0 {
-					cpu.Regs[REG_CX] = uint16(cx)
-					break
-				}
-				if cpu.Flags&DF != 0 {
-					cpu.PutReg(x86asm.DI, uint(di-1))
-				} else {
-					cpu.PutReg(x86asm.DI, uint(di+1))
-				}
-			}
-			cpu.Regs[REG_CX] = 0
-		case x86asm.PrefixREPN:
-			for cx := cpu.Reg(x86asm.CX); cx > 0; cx-- {
-				di := int(cpu.Reg(x86asm.DI))
-				src := uint(cpu.Mem.Mem8(seg, di))
-				cpu.scasbImpl(dst, src)
-				if cpu.Flags&ZF != 0 {
-					cpu.Regs[REG_CX] = uint16(cx)
-					break
-				}
-				if cpu.Flags&DF != 0 {
-					cpu.PutReg(x86asm.DI, uint(di-1))
-				} else {
-					cpu.PutReg(x86asm.DI, uint(di+1))
-				}
-			}
-			cpu.Regs[REG_CX] = 0
-		default:
-			return
-		}
-	}
-}
-
-func (cpu *CPU) cmp(inst x86asm.Inst) {
-	dst := cpu.Rmm(inst.Args[0], inst)
-	src := cpu.Rmm(inst.Args[1], inst)
-	bits := instbits(inst)
-	log.V(3).Infof("             CMP: [dst: %04x] [src: %04x] [bits: %d]\n", dst, src, bits)
-	res := dst - src
-	cpu.SetFlagsSub(res, src, dst, bits)
-}
-
-func (cpu *CPU) cmpsOne(inst x86asm.Inst, bits int) {
-	// TODO add rep/repn support
-	dst := cpu.Rmm(inst.Args[0], inst)
-	src := cpu.Rmm(inst.Args[1], inst)
-	log.V(3).Infof("             cmpsb: [dst: %04x] [src: %04x] [bits: %d]\n", dst, src, bits)
-	res := dst - src
-	cpu.SetFlagsSub(res, src, dst, bits)
-}
-
-func (cpu *CPU) cmpsRep(inst x86asm.Inst, bits int) {
-	step := bits / 8
-	if cpu.Flags&DF != 0 {
-		step = -step
-	}
-	for _, p := range inst.Prefix {
-		switch p {
-		case x86asm.PrefixREP:
-			for cx := cpu.Reg(x86asm.CX); cx > 0; cx-- {
-				di := int(cpu.Reg(x86asm.DI))
-				si := int(cpu.Reg(x86asm.SI))
-				cpu.cmpsOne(inst, bits)
-				if cpu.Flags&ZF == 0 {
-					cpu.Regs[REG_CX] = uint16(cx)
-					return
-				}
-				cpu.PutReg(x86asm.DI, uint(di+step))
-				cpu.PutReg(x86asm.SI, uint(si+step))
-			}
-			cpu.Regs[REG_CX] = 0
-			return
-		case x86asm.PrefixREPN:
-			for cx := cpu.Reg(x86asm.CX); cx > 0; cx-- {
-				di := int(cpu.Reg(x86asm.DI))
-				si := int(cpu.Reg(x86asm.SI))
-				cpu.cmpsOne(inst, bits)
-				if cpu.Flags&ZF != 0 {
-					cpu.Regs[REG_CX] = uint16(cx)
-					return
-				}
-				cpu.PutReg(x86asm.DI, uint(di+step))
-				cpu.PutReg(x86asm.SI, uint(si+step))
-			}
-			cpu.Regs[REG_CX] = 0
-			return
-		default:
-			panic("Unknonw prefix")
-		}
-	}
-}
-
-func (cpu *CPU) cmpsb(inst x86asm.Inst) {
-	if inst.Prefix[0] == 0 {
-		cpu.cmpsOne(inst, 8)
-		return
-	}
-	cpu.cmpsRep(inst, 8)
-}
-
-func (cpu *CPU) cmpsw(inst x86asm.Inst) {
-	if inst.Prefix[0] == 0 {
-		cpu.cmpsOne(inst, 16)
-		return
-	}
-	cpu.cmpsRep(inst, 16)
-}
-
-func (cpu *CPU) cwd(inst x86asm.Inst) {
-	dst := cpu.Regs[REG_AX]
-	if (dst & 0x8000) != 0 {
-		cpu.Regs[REG_DX] = 0xFFFF
-	} else {
-		cpu.Regs[REG_DX] = 0x0000
-	}
-}
-
-func (cpu *CPU) ret(inst x86asm.Inst) {
-	cpu.Ip = cpu.Pop()
-	if cpu.Ip <= 0x100 {
-		log.Infof("             IP <= 0x100: [%04X:%04X]\n\n", cpu.Sregs[SREG_CS], cpu.Ip)
-	}
-	if inst.Args[0] != nil {
-		imm := inst.Args[0].(x86asm.Imm)
-		cpu.Regs[REG_SP] = cpu.Regs[REG_SP] + uint16(imm)
-	}
-}
-
-func (cpu *CPU) lret(inst x86asm.Inst) {
-	cpu.Ip = cpu.Pop()
-	cs := cpu.Pop()
-	cpu.Sregs[SREG_CS] = cs
-	if inst.Args[0] != nil {
-		imm := inst.Args[0].(x86asm.Imm)
-		cpu.Regs[REG_SP] = cpu.Regs[REG_SP] + uint16(imm)
-	}
-}
-
-func (cpu *CPU) push(inst x86asm.Inst) {
-	r := cpu.Rmm(inst.Args[0], inst)
-	cpu.Push(uint16(r))
-}
-
-func (cpu *CPU) pop(inst x86asm.Inst) {
-	r := cpu.Pop()
-	cpu.PutRmm(inst.Args[0], inst, uint(r))
-}
-
-func (cpu *CPU) pushf(inst x86asm.Inst) {
-	cpu.Push(cpu.Flags)
-}
-
-func (cpu *CPU) popf(inst x86asm.Inst) {
-	cpu.Flags = cpu.Pop()
-}
-
-func (cpu *CPU) les(inst x86asm.Inst) {
-	m := cpu.Rmm(inst.Args[1], inst)
-	cpu.PutRmm(inst.Args[0], inst, m)
-
-	a := inst.Args[1].(x86asm.Mem)
-	seg := int(cpu.segForEA(a, inst))
-	off := int(cpu.effectiveAddress(a)) + 2
-	cpu.Sregs[SREG_ES] = cpu.Mem.Mem16(seg, off)
-}
-
-func (cpu *CPU) lds(inst x86asm.Inst) {
-	m := cpu.Rmm(inst.Args[1], inst)
-	cpu.PutRmm(inst.Args[0], inst, m)
-
-	a := inst.Args[1].(x86asm.Mem)
-	seg := int(cpu.segForEA(a, inst))
-	off := int(cpu.effectiveAddress(a)) + 2
-	cpu.Sregs[SREG_DS] = cpu.Mem.Mem16(seg, off)
-}
-
-func (cpu *CPU) cld(inst x86asm.Inst) {
-	cpu.Flags &^= DF
-}
-
-func (cpu *CPU) std(inst x86asm.Inst) {
-	cpu.Flags |= DF
-}
-
-func (cpu *CPU) clc(inst x86asm.Inst) {
-	cpu.Flags &^= CF
-}
-
-func (cpu *CPU) stc(inst x86asm.Inst) {
-	cpu.Flags |= CF
-}
-
-func (cpu *CPU) or(inst x86asm.Inst) {
-	bits := instbits(inst)
-	dest := cpu.Rmm(inst.Args[0], inst)
-	src := cpu.Rmm(inst.Args[1], inst)
-	dest |= src
-	cpu.PutRmm(inst.Args[0], inst, dest)
-	cpu.Flags &^= (OF | CF)
-	cpu.SetFlagsZSP(dest, bits)
-}
-
-func (cpu *CPU) and(inst x86asm.Inst) {
-	bits := instbits(inst)
-	dest := cpu.Rmm(inst.Args[0], inst)
-	src := cpu.Rmm(inst.Args[1], inst)
-	dest &= src
-	cpu.PutRmm(inst.Args[0], inst, dest)
-	cpu.Flags &^= (OF | CF)
-	cpu.SetFlagsZSP(dest, bits)
-}
-
-func (cpu *CPU) xchg(inst x86asm.Inst) {
-	dest := cpu.Rmm(inst.Args[0], inst)
-	src := cpu.Rmm(inst.Args[1], inst)
-	cpu.PutRmm(inst.Args[0], inst, src)
-	cpu.PutRmm(inst.Args[1], inst, dest)
-}
-
-func (cpu *CPU) xor(inst x86asm.Inst) {
-	bits := instbits(inst)
-	dest := cpu.Rmm(inst.Args[0], inst)
-	src := cpu.Rmm(inst.Args[1], inst)
-	dest ^= src
-	cpu.PutRmm(inst.Args[0], inst, dest)
-	cpu.Flags &^= (OF | CF)
-	cpu.SetFlagsZSP(dest, bits)
-}
-
-func (cpu *CPU) shl(inst x86asm.Inst) {
-	cpu.Flags &^= (OF | CF)
-	bits := instbits(inst)
-	dest := cpu.Rmm(inst.Args[0], inst)
-	src := cpu.Rmm(inst.Args[1], inst)
-	if src == 0x1 && dest&(1<<bits) != 0 {
-		cpu.Flags |= CF
-	}
-	dest = dest << src
-	cpu.PutRmm(inst.Args[0], inst, dest)
-	// TODO: Set OF/CF right
-	cpu.SetFlagsZSP(dest, bits)
-}
-
-func (cpu *CPU) sar(inst x86asm.Inst) {
-	cpu.Flags &^= (OF | CF)
-
-	dest := cpu.Rmm(inst.Args[0], inst)
-	src := cpu.Rmm(inst.Args[1], inst)
-	cf := (dest >> (src - 1) & 0x1) != 0
-	bits := instbits(inst)
-	sb := dest & (1 << (bits - 1))
-	dest = dest>>src | sb
-	if cf {
-		cpu.Flags |= CF
-	}
-	cpu.PutRmm(inst.Args[0], inst, dest)
-	cpu.SetFlagsZSP(dest, bits)
-}
-
-func (cpu *CPU) shr(inst x86asm.Inst) {
-	cpu.Flags &^= (OF | CF)
-
-	dest := cpu.Rmm(inst.Args[0], inst)
-	src := cpu.Rmm(inst.Args[1], inst)
-	cf := (dest >> (src - 1) & 0x1) != 0
-	bits := instbits(inst)
-	dest = dest >> src
-	if cf {
-		cpu.Flags |= CF
-	}
-	cpu.PutRmm(inst.Args[0], inst, dest)
-	cpu.SetFlagsZSP(dest, bits)
-}
-
-func (cpu *CPU) neg(inst x86asm.Inst) {
-	cpu.Flags &^= (AF | OF | CF)
-
-	dest := cpu.Rmm(inst.Args[0], inst)
-
-	bits := instbits(inst)
-	sb := dest & (1 << bits)
-	highb := sb >> 1
-	dest = sb - dest
-
-	if dest != 0 {
-		cpu.Flags |= CF
-	}
-	if dest&highb != 0 {
-		cpu.Flags |= OF
-	}
-	if ((dest ^ (sb - dest)) & 0x10) != 0 {
-		cpu.Flags |= AF
-	}
-	cpu.PutRmm(inst.Args[0], inst, dest)
-	cpu.SetFlagsZSP(dest, bits)
-}
-
-func (cpu *CPU) cli(inst x86asm.Inst) {
-	cpu.Flags &^= IF
-}
-
-func (cpu *CPU) sti(inst x86asm.Inst) {
-	cpu.Flags |= IF
-}
-
-func (cpu *CPU) stosb(inst x86asm.Inst) {
-	es := int(cpu.Reg(x86asm.ES))
-	v := uint8(cpu.Reg(x86asm.AL))
-	if inst.Prefix[0] == x86asm.PrefixREP {
-		for cx := cpu.Reg(x86asm.CX); cx > 0; cx-- {
-			cpu.Mem.PutMem8(es, int(cpu.Regs[REG_DI]), v)
-			if cpu.Flags&DF != 0 {
-				cpu.Regs[REG_DI]--
-			} else {
-				cpu.Regs[REG_DI]++
-			}
-		}
-		cpu.Regs[REG_CX] = 0
-	}
-	cpu.Mem.PutMem8(es, int(cpu.Regs[REG_DI]), v)
-	if cpu.Flags&DF != 0 {
-		cpu.Regs[REG_DI]--
-	} else {
-		cpu.Regs[REG_DI]++
-	}
-}
-
-func (cpu *CPU) stosw(inst x86asm.Inst) {
-	es := int(cpu.Reg(x86asm.ES))
-	v := uint16(cpu.Reg(x86asm.AX))
-	if inst.Prefix[0] == x86asm.PrefixREP {
-		for cx := cpu.Reg(x86asm.CX); cx > 0; cx-- {
-			cpu.Mem.PutMem16(es, int(cpu.Regs[REG_DI]), v)
-			if cpu.Flags&DF != 0 {
-				cpu.Regs[REG_DI] -= 2
-			} else {
-				cpu.Regs[REG_DI] += 2
-			}
-		}
-		cpu.Regs[REG_CX] = 0
-	}
-	cpu.Mem.PutMem16(es, int(cpu.Regs[REG_DI]), v)
-	if cpu.Flags&DF != 0 {
-		cpu.Regs[REG_DI] -= 2
-	} else {
-		cpu.Regs[REG_DI] += 2
-	}
-}
-
-func (cpu *CPU) lodsb(inst x86asm.Inst) {
-	ds := int(cpu.Reg(x86asm.DS))
-	si := int(cpu.Reg(x86asm.SI))
-	v := uint(cpu.Mem.Mem8(ds, si))
-	cpu.PutReg(x86asm.AL, v)
-	if cpu.Flags&DF != 0 {
-		cpu.Regs[REG_SI] -= 1
-	} else {
-		cpu.Regs[REG_SI] += 1
-	}
-}
-
-func (cpu *CPU) lodsw(inst x86asm.Inst) {
-	ds := int(cpu.Reg(x86asm.DS))
-	si := int(cpu.Reg(x86asm.SI))
-	v := uint(cpu.Mem.Mem16(ds, si))
-	cpu.PutReg(x86asm.AX, v)
-	if cpu.Flags&DF != 0 {
-		cpu.Regs[REG_SI] -= 2
-	} else {
-		cpu.Regs[REG_SI] += 2
-	}
-}
-
-func (cpu *CPU) nop(inst x86asm.Inst) {
-
-}
-
-func (cpu *CPU) not(inst x86asm.Inst) {
-	dest := cpu.Rmm(inst.Args[0], inst)
-	dest = ^dest
-	cpu.PutRmm(inst.Args[0], inst, dest)
-}
-
-func (cpu *CPU) test(inst x86asm.Inst) {
-	bits := instbits(inst)
-	dest := cpu.Rmm(inst.Args[0], inst)
-	src := cpu.Rmm(inst.Args[1], inst)
-	dest &= src
-	cpu.Flags &^= (OF | CF)
-	cpu.SetFlagsZSP(dest, bits)
-}
-
-// Construct the table of opcodes to functions that implement them.
-func init() {
-	opcodes[x86asm.ADD] = (*CPU).add
-	opcodes[x86asm.AND] = (*CPU).and
-	opcodes[x86asm.CALL] = (*CPU).call
-	opcodes[x86asm.CLC] = (*CPU).clc
-	opcodes[x86asm.CLD] = (*CPU).cld
-	opcodes[x86asm.CLI] = (*CPU).cli
-	opcodes[x86asm.CMP] = (*CPU).cmp
-	opcodes[x86asm.CMPSB] = (*CPU).cmpsb
-	opcodes[x86asm.CMPSW] = (*CPU).cmpsw
-	opcodes[x86asm.CWD] = (*CPU).cwd
-	opcodes[x86asm.DEC] = (*CPU).dec
-	opcodes[x86asm.INC] = (*CPU).inc
-	opcodes[x86asm.INT] = (*CPU).intr
-	opcodes[x86asm.IRET] = (*CPU).iret
-	opcodes[x86asm.JA] = (*CPU).jc
-	opcodes[x86asm.JAE] = (*CPU).jc
-	opcodes[x86asm.JB] = (*CPU).jc
-	opcodes[x86asm.JBE] = (*CPU).jc
-	opcodes[x86asm.JCXZ] = (*CPU).jc
-	opcodes[x86asm.JE] = (*CPU).jc
-	opcodes[x86asm.JG] = (*CPU).jc
-	opcodes[x86asm.JGE] = (*CPU).jc
-	opcodes[x86asm.JL] = (*CPU).jc
-	opcodes[x86asm.JLE] = (*CPU).jc
-	opcodes[x86asm.JMP] = (*CPU).jmp
-	opcodes[x86asm.JNE] = (*CPU).jc
-	opcodes[x86asm.JNO] = (*CPU).jc
-	opcodes[x86asm.JNP] = (*CPU).jc
-	opcodes[x86asm.JNS] = (*CPU).jc
-	opcodes[x86asm.JO] = (*CPU).jc
-	opcodes[x86asm.JP] = (*CPU).jc
-	opcodes[x86asm.JS] = (*CPU).jc
-	opcodes[x86asm.LCALL] = (*CPU).lcall
-	opcodes[x86asm.LJMP] = (*CPU).ljmp
-	opcodes[x86asm.LDS] = (*CPU).lds
-	opcodes[x86asm.LEA] = (*CPU).lea
-	opcodes[x86asm.LES] = (*CPU).les
-	opcodes[x86asm.LODSB] = (*CPU).lodsb
-	opcodes[x86asm.LODSW] = (*CPU).lodsw
-	opcodes[x86asm.LOOP] = (*CPU).loop
-	opcodes[x86asm.LOOPE] = (*CPU).loope
-	opcodes[x86asm.LOOPNE] = (*CPU).loopne
-	opcodes[x86asm.LRET] = (*CPU).lret
-	opcodes[x86asm.MOV] = (*CPU).mov
-	opcodes[x86asm.NEG] = (*CPU).neg
-	opcodes[x86asm.NOP] = (*CPU).nop
-	opcodes[x86asm.NOT] = (*CPU).not
-	opcodes[x86asm.OR] = (*CPU).or
-	opcodes[x86asm.POP] = (*CPU).pop
-	opcodes[x86asm.POPF] = (*CPU).popf
-	opcodes[x86asm.PUSH] = (*CPU).push
-	opcodes[x86asm.PUSHF] = (*CPU).pushf
-	opcodes[x86asm.RET] = (*CPU).ret
-	opcodes[x86asm.SCASB] = (*CPU).scasb
-	opcodes[x86asm.SHL] = (*CPU).shl
-	opcodes[x86asm.SAR] = (*CPU).sar
-	opcodes[x86asm.SHR] = (*CPU).shr
-	opcodes[x86asm.STC] = (*CPU).stc
-	opcodes[x86asm.STD] = (*CPU).std
-	opcodes[x86asm.STI] = (*CPU).sti
-	opcodes[x86asm.SUB] = (*CPU).sub
-	opcodes[x86asm.STOSB] = (*CPU).stosb
-	opcodes[x86asm.STOSW] = (*CPU).stosw
-	opcodes[x86asm.TEST] = (*CPU).test
-	opcodes[x86asm.XCHG] = (*CPU).xchg
-	opcodes[x86asm.XOR] = (*CPU).xor
+// CpuInstructionReader is an interface for reading CPU instructions.
+type CpuInstructionReader interface {
+	Fetch8() (uint8, error)
+	Fetch16() (uint16, error)
 }
 
 // Represents the state of an 8086 CPU.
 type CPU struct {
 	// Pointer to the system
 	Mem *Memory
-	// Set of registers (AX, BX, CX, etc...)
-	Regs [maxRegs]uint16
-	// Set of segment registers (CS, DS, etc...)
-	Sregs [maxSegs]uint16
 	// CPU Flags (overflow, zero, etc)
-	Flags uint16
+	Flags Flags
 	// Current instruction pointer to execute relative to the code segment (CS).
 	Ip uint16
+	// CPU registers
+	Regs Registers
 
 	Running bool
 	// Interrupt map for interrupts which do not exist as 8086 code contained
 	// within the CPU's memory.
 	Intrs    map[int]func(*CPU, int)
 	Debugger Debugger
-
-	// Currently executing instruction
-	Inst x86asm.Inst
 }
 
 func NewCpu(size int) *CPU {
 	m := NewMemory(size)
+	log.Infof("NewCPU Memory Size : %d\n", size)
 	return &CPU{Mem: m, Intrs: make(map[int]func(*CPU, int)), Running: true}
-}
-
-// returns a register as an unisgned int
-// useful when handling operations.
-func (cpu *CPU) Reg(reg x86asm.Reg) uint {
-	r := regnums[reg]
-	switch reg {
-	case x86asm.AL, x86asm.BL, x86asm.CL, x86asm.DL:
-		return uint(cpu.Regs[r] & 0xFF)
-	case x86asm.AH, x86asm.BH, x86asm.CH, x86asm.DH:
-		return uint((cpu.Regs[r] >> 8) & 0xFF)
-	case x86asm.AX, x86asm.BX, x86asm.CX, x86asm.DX, x86asm.BP, x86asm.SI, x86asm.SP, x86asm.DI:
-		return uint(cpu.Regs[r])
-	case x86asm.CS, x86asm.SS, x86asm.DS, x86asm.ES:
-		return uint(cpu.Sregs[r])
-	case x86asm.IP:
-		return uint(cpu.Ip)
-	default:
-		log.Fatalf("Unexpected Reg: %s ", reg)
-		return 0
-	}
-}
-
-// Puts a value into a register, either 8 or 16 bytes
-func (cpu *CPU) PutReg(reg x86asm.Reg, val uint) {
-	r := regnums[reg]
-	switch reg {
-	case x86asm.AL, x86asm.BL, x86asm.CL, x86asm.DL:
-		cpu.Regs[r] &= 0xFF00
-		cpu.Regs[r] |= uint16(val) & 0x00FF
-	case x86asm.AH, x86asm.BH, x86asm.CH, x86asm.DH:
-		cpu.Regs[r] &= 0x00FF
-		cpu.Regs[r] |= uint16(val) << 8
-	case x86asm.AX, x86asm.BX, x86asm.CX, x86asm.DX, x86asm.BP, x86asm.SI, x86asm.SP, x86asm.DI:
-		cpu.Regs[r] = uint16(val)
-	case x86asm.CS, x86asm.SS, x86asm.DS, x86asm.ES:
-		cpu.Sregs[r] = uint16(val)
-	case x86asm.IP:
-		cpu.Ip = uint16(val)
-	default:
-		log.Fatalf("Unexpected PutReg: %s ", reg)
-	}
-}
-
-// Returns the prefix to use when addressing the effective address for this
-// instruction.
-func (cpu *CPU) segForEA(a x86asm.Mem, inst x86asm.Inst) uint16 {
-	// Check for predix overrides
-	if inst.Prefix[0] != 0 {
-		for _, p := range inst.Prefix {
-			p &= 0x00FF
-			switch p {
-			case x86asm.PrefixCS:
-				return cpu.Sregs[SREG_CS]
-			case x86asm.PrefixDS:
-				return cpu.Sregs[SREG_DS]
-			case x86asm.PrefixES:
-				return cpu.Sregs[SREG_ES]
-			case x86asm.PrefixSS:
-				return cpu.Sregs[SREG_SS]
-			}
-		}
-	}
-
-	segnum := SREG_DS
-	if a.Base == x86asm.BP || a.Index == x86asm.BP {
-		segnum = SREG_SS
-	}
-	if int64(a.Segment) != 0 {
-		segnum = regnums[a.Segment]
-	}
-	return cpu.Sregs[segnum]
-}
-
-// Returns the size of instruction, either 8 for 8 bit or 16 for 16-bit.
-func instbits(inst x86asm.Inst) int {
-	if inst.MemBytes > 0 {
-		return inst.MemBytes * 8
-	}
-	if inst.Args[0] == nil {
-		log.Fatal("Instance had no args and no memsize: ", inst)
-		return 0
-	}
-	a := inst.Args[0]
-	switch a := a.(type) {
-	case x86asm.Reg:
-		switch a {
-		case x86asm.AX, x86asm.BX, x86asm.CX, x86asm.DX:
-			return 16
-		case x86asm.SS, x86asm.CS, x86asm.DS, x86asm.ES:
-			return 16
-		case x86asm.BP, x86asm.SP, x86asm.SI, x86asm.DI:
-			return 16
-		default:
-			return 8
-		}
-	default:
-		log.Fatalf("Unknown type for Bytes: %s", inst)
-		return 0
-	}
-}
-
-// N.B. The ModR/M byte is used when a register or memory operand is required (used).
-// For instructions that don't have a register or memory operand, the value may be
-// encoded as an immediate value (Imm) as part of the opcode stream.
-
-// Gets the value specified by the ModR/M for the given argument and instruction.
-func (cpu *CPU) Rmm(a x86asm.Arg, inst x86asm.Inst) uint {
-	switch a := a.(type) {
-	case x86asm.Reg:
-		return cpu.Reg(a)
-	case x86asm.Imm:
-		return uint(int64(a & 0xFFFF))
-	case x86asm.Mem:
-		seg := int(cpu.segForEA(a, inst))
-		off := int(cpu.effectiveAddress(a))
-		if inst.MemBytes == 1 {
-			return uint(cpu.Mem.Mem8(seg, off))
-		}
-		return uint(cpu.Mem.Mem16(seg, off))
-	default:
-		log.Fatalf("Unknown type for Rmm8: %T", a)
-		return 0
-	}
-}
-
-// Puts (sets) the value val to the location specified by the ModR/M for the given
-// argument and instruction.
-func (cpu *CPU) PutRmm(a x86asm.Arg, inst x86asm.Inst, val uint) {
-	switch a := a.(type) {
-	case x86asm.Reg:
-		cpu.PutReg(a, val)
-	case x86asm.Mem:
-		seg := int(cpu.segForEA(a, inst))
-		off := int(cpu.effectiveAddress(a))
-		if inst.MemBytes == 1 {
-			cpu.Mem.PutMem8(seg, int(off), uint8(val&0xFF))
-		} else {
-			cpu.Mem.PutMem16(seg, int(off), uint16(val&0xFFFF))
-		}
-	default:
-		log.Fatalf("Unknown type for Rmm8: %T", a)
-	}
-}
-
-func (cpu *CPU) DoInst(inst x86asm.Inst, origIp uint16) bool {
-	if log.V(2) {
-		prefix := ""
-		if inst.Prefix[0] != 0 {
-			prefix = fmt.Sprintf("[%v]", inst.Prefix[0])
-		}
-		disam := cpu.Mem.At(int(cpu.Sregs[SREG_CS]), int(origIp))[:inst.Len]
-		// 0E06:004E BE0010            MOV     SI,1000
-		log.V(2).Infof("%04X:%04X %-18s %s%s\n",
-			cpu.Sregs[SREG_CS], origIp, hex.EncodeToString(disam), prefix, inst)
-	}
-	log.V(4).Infof("I: %s, 2: %s [DS: %d][MB: %d]\n", inst.Args[0], inst.Args[1],
-		inst.DataSize, inst.MemBytes)
-
-	if opcodes[inst.Op] == nil {
-		log.Warningf("Missing opcode function for opcode: %v", inst.Op)
-		return false
-	}
-	opcodes[inst.Op](cpu, inst)
-	// Log regs after the instruction executes
-	// AX=0005 BX=FF00 CX=0000 DX=0000 SP=0800 BP=0000 SI=1000 DI=0F18
-	// DS=0DF6 ES=0DF6 SS=0F4C CS=0E06 IP=0051 NV UP EI NG NZ NA PE NC
-	log.V(2).Infof("AX=%04X BX=%04X CX=%04X DX=%04X SP=%04X BP=%04X SI=%04X DI=%04X \n",
-		cpu.Regs[REG_AX], cpu.Regs[REG_BX], cpu.Regs[REG_CX], cpu.Regs[REG_DX],
-		cpu.Regs[REG_SP], cpu.Regs[REG_BP], cpu.Regs[REG_SI], cpu.Regs[REG_DI])
-	log.V(2).Infof("DS=%04X ES=%04X SS=%04X CS=%04X IP=%04X %s\n",
-		cpu.Sregs[SREG_DS], cpu.Sregs[SREG_ES],
-		cpu.Sregs[SREG_SS], cpu.Sregs[SREG_CS], cpu.Ip, cpu.FlagsToDebugString())
-	return true
-}
-
-func (cpu *CPU) Decode() (x86asm.Inst, error) {
-	x := cpu.Mem.At(int(cpu.Sregs[SREG_CS]), int(cpu.Ip))
-	inst, err := x86asm.Decode(x, 16)
-	return inst, err
-}
-
-func (cpu *CPU) Halt() {
-	cpu.Running = false
 }
 
 func (cpu *CPU) Run() {
 	for cpu.Running {
-		cpu.RunOnce()
+		err := cpu.RunOnce()
+		if err != nil {
+			log.Warningf("Error running CPU: %v\n", err)
+			// should we halt here at some point?
+			// cpu.Running = false
+		}
 	}
 }
 
-func (cpu *CPU) RunOnce() bool {
-	inst, err := cpu.Decode()
-	cs := int(cpu.Sregs[SREG_CS])
-	ip := int(cpu.Ip)
-	cpu.Inst = inst
-
+// HandleGrp18 handles the GRP1 opcode extension for
+func (cpu *CPU) HandleGrpOne8() error {
+	modrm, err := ParseModRM(cpu)
 	if err != nil {
-		log.Fatalf("Error decoding instruction at %d", cpu.Ip)
-		return false
+		return err
 	}
+	// modrm.Reg is an opcode extension
+	switch modrm.Reg {
+	case 0:
+		return cpu.addEbIb(modrm)
+	case 1:
+		return cpu.orEbIb(modrm)
+	case 4:
+		return cpu.andEbIb(modrm)
+	case 5:
+		return cpu.subEbIb(modrm)
+	case 6:
+		return cpu.xorEbIb(modrm)
+	case 7:
+		return cpu.cmpEbIb(modrm)
+	default:
+		return fmt.Errorf("unhandled GRP1 opcode: %x", modrm.Reg)
+	}
+}
+
+func (cpu *CPU) HandleGrpOne16() error {
+	modrm, err := ParseModRM(cpu)
+	if err != nil {
+		return err
+	}
+	// modrm.Reg is an opcode extension
+	switch modrm.Reg {
+	case 0:
+		return cpu.addEvIv(modrm)
+	case 1:
+		return cpu.orEvIv(modrm)
+	case 4:
+		return cpu.andEvIv(modrm)
+	case 5:
+		return cpu.subEvIv(modrm)
+	case 6:
+		return cpu.xorEvIv(modrm)
+	case 7:
+		return cpu.cmpEvIv(modrm)
+	default:
+		return fmt.Errorf("unhandled GRP1 opcode: %x", modrm.Reg)
+	}
+}
+
+// RunOnce executes a single instruction.
+func (cpu *CPU) RunOnce() error {
+	cs := cpu.Regs.CS()
+	ip := uint(cpu.Ip)
+	opcode := cpu.Mem.Mem8(cs, ip)
 
 	if cpu.Debugger != nil {
 		cpu.Debugger.Step()
 	}
-	origIp := cpu.Ip
-	cpu.Ip += uint16(inst.Len)
-	res := cpu.DoInst(inst, origIp)
-	if !res {
-		ms := cpu.Mem.At(cs, ip)[:inst.Len]
-		opcodestr := hex.EncodeToString(ms)
-		log.Warningf("Unhandled OpCode: [%s] %s [%x]: '%s'\n", opcodestr, inst.Op, inst.Opcode, inst)
+	cpu.Ip += 1
+
+	switch opcode {
+
+	// ADD - Add
+	case 0x00:
+		cpu.addEbGb()
+	case 0x01:
+		cpu.addEvGv()
+	case 0x02:
+		cpu.addGbEb()
+	case 0x03:
+		cpu.addGvEv()
+	case 0x04:
+		cpu.addALIb()
+	case 0x05:
+		cpu.addAXIv()
+
+	// PUSH/POP ES
+	case 0x06:
+		cpu.Regs.Push16(cpu.Mem, uint16(cpu.Regs.ES()))
+	case 0x07:
+		val := cpu.Regs.Pop16(cpu.Mem)
+		cpu.Regs.SetSeg16(ES, uint(val))
+
+	// OR - Logical Inclusive OR
+	case 0x08:
+		cpu.orEbGb()
+	case 0x09:
+		cpu.orEvGv()
+	case 0x0A:
+		cpu.orGbEb()
+	case 0x0B:
+		cpu.orGvEv()
+	case 0x0C:
+		cpu.orALIb()
+	case 0x0D:
+		cpu.orAXIv()
+	case 0x0E:
+		cpu.Regs.Push16(cpu.Mem, uint16(cpu.Regs.CS()))
+
+	case 0x16:
+		cpu.Regs.Push16(cpu.Mem, uint16(cpu.Regs.SS()))
+	case 0x17:
+		val := cpu.Regs.Pop16(cpu.Mem)
+		cpu.Regs.SetSeg16(SS, uint(val))
+
+	case 0x1E:
+		cpu.Regs.Push16(cpu.Mem, uint16(cpu.Regs.DS()))
+	case 0x1F:
+		val := cpu.Regs.Pop16(cpu.Mem)
+		cpu.Regs.SetSeg16(DS, uint(val))
+
+	// AND - Logical AND
+	case 0x20:
+		cpu.andEbGb()
+	case 0x21:
+		cpu.andEvGv()
+	case 0x22:
+		cpu.andGbEb()
+	case 0x23:
+		cpu.andGvEv()
+	case 0x24:
+		cpu.andALIb()
+	case 0x25:
+		cpu.andAXIv()
+
+	// SUB - Subtract
+	case 0x28:
+		cpu.subEbGb()
+	case 0x29:
+		cpu.subEvGv()
+	case 0x2A:
+		cpu.subGbEb()
+	case 0x2B:
+		cpu.subGvEv()
+	case 0x2C:
+		cpu.subALIb()
+	case 0x2D:
+		cpu.subAXIv()
+
+	// XOR - Logical Exclusive OR
+	// OR - Logical Inclusive OR
+	case 0x30:
+		cpu.xorEbGb()
+	case 0x31:
+		cpu.xorEvGv()
+	case 0x32:
+		cpu.xorGbEb()
+	case 0x33:
+		cpu.xorGvEv()
+	case 0x34:
+		cpu.xorALIb()
+	case 0x35:
+		cpu.xorAXIv()
+
+	// CMP - Compare
+	case 0x38:
+		cpu.cmpEbGb()
+	case 0x39:
+		cpu.cmpEvGv()
+	case 0x3A:
+		cpu.cmpGbEb()
+	case 0x3B:
+		cpu.cmpGvEv()
+	case 0x3C:
+		cpu.cmpALIb()
+	case 0x3D:
+		cpu.cmpAXIv()
+
+	// Increment/Decrement registers
+	case 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47:
+		cpu.Regs.Inc16(Reg(opcode-0x40), 1)
+	case 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F:
+		cpu.Regs.Dec16(Reg(opcode-0x48), 1)
+
+	// Push and pop registers
+	case 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57:
+		cpu.Regs.PushReg16(Reg(opcode-0x50), cpu.Mem)
+	case 0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F:
+		cpu.Regs.PopReg16(Reg(opcode-0x50), cpu.Mem)
+
+	// Jumps
+	case 0x70:
+		return cpu.jo8()
+	case 0x71:
+		return cpu.jno8()
+	case 0x72:
+		return cpu.jb8()
+	case 0x73:
+		return cpu.jnb8()
+	case 0x74:
+		return cpu.jz8()
+	case 0x75:
+		return cpu.jnz8()
+	case 0x76:
+		return cpu.jbe8()
+	case 0x77:
+		return cpu.ja8()
+	case 0x78:
+		return cpu.js8()
+	case 0x79:
+		return cpu.jns8()
+	case 0x7A:
+		return cpu.jpe8()
+	case 0x7B:
+		return cpu.jpo8()
+	case 0x7C:
+		return cpu.jl8()
+	case 0x7D:
+		return cpu.jge8()
+	case 0x7E:
+		return cpu.jle8()
+	case 0x7F:
+		return cpu.jg8()
+
+	case 0x80, 0x82: // GRP1
+		return cpu.HandleGrpOne8()
+	case 0x81: // GRP1
+		return cpu.HandleGrpOne16()
+	case 0x83:
+		return fmt.Errorf("unhandled undocumented grp1 OpCode: %x", opcode)
+
+	case 0x90: // NOP
+		return nil
+
+	default:
+		return fmt.Errorf("unhandled OpCode: %x", opcode)
 	}
-	return res
+	return nil
+}
+
+// Fetch8 reads an 8-bit value from memory at the current instruction pointer
+// and increments the instruction pointer by 1.
+func (cpu *CPU) Fetch8() (uint8, error) {
+	x := cpu.Mem.Mem8(cpu.Regs.CS(), uint(cpu.Ip))
+	cpu.Ip++
+	return x, nil
+}
+
+// Fetch16 reads a 16-bit value from memory at the current instruction pointer
+// and increments the instruction pointer by 2.
+func (cpu *CPU) Fetch16() (uint16, error) {
+	x := cpu.Mem.Mem16(cpu.Regs.CS(), uint(cpu.Ip))
+	cpu.Ip += 2
+	return x, nil
 }

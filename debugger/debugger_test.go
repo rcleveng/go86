@@ -73,7 +73,7 @@ func TestDebuggerAddBreakpointRemove(t *testing.T) {
 func TestDebuggerShouldBreak(t *testing.T) {
 	c := cpu.NewCpu(1024 * 1024)
 	c.Ip = 0
-	c.Sregs[cpu.SREG_CS] = 100
+	c.Regs.SetSeg16((cpu.CS), 100)
 
 	b := Breakpoint{
 		seg: 100,

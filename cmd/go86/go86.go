@@ -33,8 +33,8 @@ func doinst(opcodes string) bool {
 	bios.NewBios(c)
 	dos.NewDos(c)
 	copy(c.Mem.At(cs, 0), d)
-	c.Sregs[cpu.SREG_CS] = 0x1000
-	c.Sregs[cpu.SREG_DS] = 0x1000
+	c.Regs.SetSeg16(cpu.CS, 0x1000)
+	c.Regs.SetSeg16(cpu.DS, 0x1000)
 	c.Ip = 0
 	c.Run()
 	return true
