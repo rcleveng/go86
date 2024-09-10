@@ -156,3 +156,20 @@ func (cpu *CPU) jge8() error {
 	}
 	return nil
 }
+
+// callFar - call far
+func (cpu *CPU) callFar() error {
+	off, err := cpu.Fetch16()
+	if err != nil {
+		return err
+	}
+	seg, err := cpu.Fetch16()
+	if err != nil {
+		return err
+	}
+	cpu.Regs.PushSeg16(CS, cpu.Mem)
+	cpu.Regs.Push16(cpu.Mem, cpu.Ip)
+	cpu.Regs.SetSeg16(CS, uint(seg))
+	cpu.Ip = off & 0xffff // mask to 16 bits
+	return nil
+}

@@ -109,7 +109,7 @@ func (m *ModRM) GetRm8(cpu *CPU) uint {
 	}
 	offset := m.effectiveAddressOffset8(cpu)
 	seg := m.segmentToUse(cpu)
-	return uint(cpu.Mem.Mem8(seg, offset))
+	return uint(cpu.Mem.GetMem8(seg, offset))
 }
 
 func (m *ModRM) SetRm8(cpu *CPU, value uint) {
@@ -120,7 +120,7 @@ func (m *ModRM) SetRm8(cpu *CPU, value uint) {
 	}
 	offset := m.effectiveAddressOffset8(cpu)
 	seg := m.segmentToUse(cpu)
-	cpu.Mem.PutMem8(seg, offset, uint8(value))
+	cpu.Mem.SetMem8(seg, offset, uint8(value))
 }
 
 func (m *ModRM) GetRm16(cpu *CPU) uint {
@@ -129,7 +129,7 @@ func (m *ModRM) GetRm16(cpu *CPU) uint {
 	}
 	offset := m.effectiveAddressOffset16(cpu)
 	seg := m.segmentToUse(cpu)
-	return uint(cpu.Mem.Mem16(seg, offset))
+	return uint(cpu.Mem.GetMem16(seg, offset))
 }
 
 func (m *ModRM) SetRm16(cpu *CPU, value uint) {
@@ -140,7 +140,7 @@ func (m *ModRM) SetRm16(cpu *CPU, value uint) {
 	}
 	offset := m.effectiveAddressOffset8(cpu)
 	seg := m.segmentToUse(cpu)
-	cpu.Mem.PutMem16(seg, offset, uint16(value))
+	cpu.Mem.SetMem16(seg, offset, uint16(value))
 }
 
 func (m *ModRM) R8(cpu *CPU) uint {

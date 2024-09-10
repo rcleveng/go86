@@ -54,7 +54,7 @@ func (cpu *CPU) Run() {
 }
 
 // HandleGrp18 handles the GRP1 opcode extension for
-func (cpu *CPU) HandleGrpOne8() error {
+func (cpu *CPU) HandleGrpOneEbIb() error {
 	modrm, err := ParseModRM(cpu)
 	if err != nil {
 		return err
@@ -78,7 +78,7 @@ func (cpu *CPU) HandleGrpOne8() error {
 	}
 }
 
-func (cpu *CPU) HandleGrpOne16() error {
+func (cpu *CPU) HandleGrpOneEvIv() error {
 	modrm, err := ParseModRM(cpu)
 	if err != nil {
 		return err
@@ -102,11 +102,35 @@ func (cpu *CPU) HandleGrpOne16() error {
 	}
 }
 
+func (cpu *CPU) HandleGrpOneEvIb() error {
+	modrm, err := ParseModRM(cpu)
+	if err != nil {
+		return err
+	}
+	// modrm.Reg is an opcode extension
+	switch modrm.Reg {
+	case 0:
+		return cpu.addEvIb(modrm)
+	case 1:
+		return cpu.orEvIb(modrm)
+	case 4:
+		return cpu.andEvIb(modrm)
+	case 5:
+		return cpu.subEvIb(modrm)
+	case 6:
+		return cpu.xorEvIb(modrm)
+	case 7:
+		return cpu.cmpEvIb(modrm)
+	default:
+		return fmt.Errorf("unhandled GRP1 opcode: %x", modrm.Reg)
+	}
+}
+
 // RunOnce executes a single instruction.
 func (cpu *CPU) RunOnce() error {
 	cs := cpu.Regs.CS()
 	ip := uint(cpu.Ip)
-	opcode := cpu.Mem.Mem8(cs, ip)
+	opcode := cpu.Mem.GetMem8(cs, ip)
 
 	if cpu.Debugger != nil {
 		cpu.Debugger.Step()
@@ -267,15 +291,99 @@ func (cpu *CPU) RunOnce() error {
 	case 0x7F:
 		return cpu.jg8()
 
-	case 0x80, 0x82: // GRP1
-		return cpu.HandleGrpOne8()
+	case 0x80: // GRP1
+		return cpu.HandleGrpOneEbIb()
 	case 0x81: // GRP1
-		return cpu.HandleGrpOne16()
-	case 0x83:
+		return cpu.HandleGrpOneEvIv()
+	case 0x82: // ????
 		return fmt.Errorf("unhandled undocumented grp1 OpCode: %x", opcode)
+	case 0x83:
+		return cpu.HandleGrpOneEvIb()
+
+	// Tests
+	case 0x84:
+		cpu.testEbGb()
+	case 0x85:
+		cpu.testEvGv()
+
+	// XCHG - Exchange
+	case 0x86:
+		cpu.xchgGbEb()
+	case 0x87:
+		cpu.xchgGvEv()
+
+	// MOV - Move Gv, Ev and family
+	case 0x88:
+		return cpu.movEbGb()
+	case 0x89:
+		return cpu.movEvGv()
+	case 0x8A:
+		return cpu.movGbEb()
+	case 0x8B:
+		return cpu.movGvEv()
+	case 0x8C:
+		return cpu.moveEwSw()
+	case 0x8D:
+		return cpu.leaGvM()
+	case 0x8E:
+		return cpu.movSwEw()
+	case 0x8F:
+		return cpu.popEv()
 
 	case 0x90: // NOP
 		return nil
+
+	// XCHG Registers
+	case 0x91:
+		cpu.xchgRegs(CX, AX)
+	case 0x92:
+		cpu.xchgRegs(DX, AX)
+	case 0x93:
+		cpu.xchgRegs(BX, AX)
+	case 0x94:
+		cpu.xchgRegs(SP, AX)
+	case 0x95:
+		cpu.xchgRegs(BP, AX)
+	case 0x96:
+		cpu.xchgRegs(SI, AX)
+	case 0x97:
+		cpu.xchgRegs(DI, AX)
+	case 0x98: // Sign extend AL into AX
+		value := uint(int16(int8(cpu.Regs.GetReg8(AL))))
+		cpu.Regs.SetReg16(AX, value)
+	case 0x99: // Sign extend AX into DX:AX
+		value := uint(int32(int16(cpu.Regs.GetReg16(AX))))
+		cpu.Regs.SetReg16(DX, value>>16)
+	case 0x9A:
+		return cpu.callFar()
+	case 0x9B:
+		return fmt.Errorf("WAIT [0x98] not handled")
+	case 0x9C: // PUSHF
+		cpu.Regs.Push16(cpu.Mem, uint16(cpu.Flags.Value()))
+	case 0x9D: // POPF
+		cpu.Flags.ReplaceAllFlags(uint32(cpu.Regs.Pop16(cpu.Mem)))
+	case 0x9E: // SAHF
+		cpu.Regs.SetReg8(AH, uint(cpu.Flags.Value()&0xff))
+	case 0x9F: // LAHF
+		flags := cpu.Flags.Value() & 0xff00
+		flags |= uint32(cpu.Regs.GetReg8(AH) & 0x00ff)
+		cpu.Flags.ReplaceAllFlags(flags)
+
+	// MOVE - moffs
+	case 0xA0:
+		return cpu.movALOb()
+	case 0xA1:
+		return cpu.movAXOv()
+	case 0xA2:
+		return cpu.movObAL()
+	case 0xA3:
+		return cpu.movOvAX()
+
+	// Move to register from immediate value
+	case 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7:
+		return cpu.movRegIb(Reg8(opcode - 0xB0))
+	case 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF:
+		return cpu.movRegIv(Reg(opcode - 0xB8))
 
 	default:
 		return fmt.Errorf("unhandled OpCode: %x", opcode)
@@ -286,7 +394,7 @@ func (cpu *CPU) RunOnce() error {
 // Fetch8 reads an 8-bit value from memory at the current instruction pointer
 // and increments the instruction pointer by 1.
 func (cpu *CPU) Fetch8() (uint8, error) {
-	x := cpu.Mem.Mem8(cpu.Regs.CS(), uint(cpu.Ip))
+	x := cpu.Mem.GetMem8(cpu.Regs.CS(), uint(cpu.Ip))
 	cpu.Ip++
 	return x, nil
 }
@@ -294,7 +402,7 @@ func (cpu *CPU) Fetch8() (uint8, error) {
 // Fetch16 reads a 16-bit value from memory at the current instruction pointer
 // and increments the instruction pointer by 2.
 func (cpu *CPU) Fetch16() (uint16, error) {
-	x := cpu.Mem.Mem16(cpu.Regs.CS(), uint(cpu.Ip))
+	x := cpu.Mem.GetMem16(cpu.Regs.CS(), uint(cpu.Ip))
 	cpu.Ip += 2
 	return x, nil
 }

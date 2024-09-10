@@ -52,13 +52,13 @@ func (dos *Dos) Int21(c *cpu.CPU, intnum int) {
 		al := int(c.Regs[cpu.REG_AX] & 0xFF)
 		ds := c.Sregs[cpu.SREG_DS]
 		dx := c.Regs[cpu.REG_DX]
-		c.Mem.PutMem16(0, al, dx)
-		c.Mem.PutMem16(0, al+2, ds)
+		c.Mem.SetMem16(0, al, dx)
+		c.Mem.SetMem16(0, al+2, ds)
 	case 0x35:
 		// AH=35h - GET INTERRUPT VECTOR
 		al := int(c.Regs[cpu.REG_AX] & 0xFF)
-		c.Sregs[cpu.SREG_ES] = c.Mem.Mem16(0, al)
-		c.Regs[cpu.REG_BX] = c.Mem.Mem16(0, al+2)
+		c.Sregs[cpu.SREG_ES] = c.Mem.GetMem16(0, al)
+		c.Regs[cpu.REG_BX] = c.Mem.GetMem16(0, al+2)
 	case 0x40:
 		// AH=40h - "WRITE" - WRITE TO FILE OR DEVICE
 		bx := int(c.Regs[cpu.REG_BX])
@@ -114,17 +114,17 @@ func NewDos(cpu *cpu.CPU) *Dos {
 
 func (dos *Dos) createPsp(exe *Executable, seg_base *DosMemBlock, env_seg *DosMemBlock) {
 	start := seg_base.Start
-	dos.cpu.Mem.PutMem8(start, 0, 0xCD)
-	dos.cpu.Mem.PutMem8(start, 1, 0x20)
+	dos.cpu.Mem.SetMem8(start, 0, 0xCD)
+	dos.cpu.Mem.SetMem8(start, 1, 0x20)
 	// First paragraph following this segment.
-	dos.cpu.Mem.PutMem16(start, 2, uint16(seg_base.End+1))
+	dos.cpu.Mem.SetMem16(start, 2, uint16(seg_base.End+1))
 
-	dos.cpu.Mem.PutMem8(start, 10, 0x22) // int22 handler
-	dos.cpu.Mem.PutMem8(start, 14, 0x23) // int23 handler
-	dos.cpu.Mem.PutMem8(start, 18, 0x24) // int24 handler
+	dos.cpu.Mem.SetMem8(start, 10, 0x22) // int22 handler
+	dos.cpu.Mem.SetMem8(start, 14, 0x23) // int23 handler
+	dos.cpu.Mem.SetMem8(start, 18, 0x24) // int24 handler
 	// FFFE means no parent DOS process
-	dos.cpu.Mem.PutMem16(start, 22, 0xFFFE)
-	dos.cpu.Mem.PutMem16(start, 44, uint16(env_seg.Start))
+	dos.cpu.Mem.SetMem16(start, 22, 0xFFFE)
+	dos.cpu.Mem.SetMem16(start, 44, uint16(env_seg.Start))
 	// TODO: Create rest
 }
 
@@ -190,8 +190,8 @@ func (dos *Dos) LoadExe(exe *Executable, seg_base *DosMemBlock) (seg uint16, err
 
 	// Fixup relos
 	for _, r := range exe.Hdr.Relos {
-		m := dos.cpu.Mem.Mem16(int(img_start+r.Segment), int(r.Offset))
-		dos.cpu.Mem.PutMem16(int(img_start+r.Segment), int(r.Offset), m+img_start)
+		m := dos.cpu.Mem.GetMem16(int(img_start+r.Segment), int(r.Offset))
+		dos.cpu.Mem.SetMem16(int(img_start+r.Segment), int(r.Offset), m+img_start)
 		log.V(3).Infof("Relo: [0x%04X:0x%04X] += 0x%04X", r.Segment, r.Offset, img_start)
 	}
 

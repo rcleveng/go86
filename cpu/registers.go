@@ -159,7 +159,7 @@ func (r *Registers) Push16(mem *Memory, val uint16) {
 	r.regs[SP] = r.regs[SP] - 2
 	seg := r.sregs[SS]
 	off := r.regs[SP]
-	mem.PutMem16(seg, off, val)
+	mem.SetMem16(seg, off, val)
 	log.V(1).Infof("   PUSH: [%04X:%04X] = %04X", seg, off, val)
 }
 
@@ -167,7 +167,7 @@ func (r *Registers) Push16(mem *Memory, val uint16) {
 func (r *Registers) Pop16(mem *Memory) uint16 {
 	seg := r.sregs[SS]
 	off := r.regs[SP]
-	v := mem.Mem16(seg, off)
+	v := mem.GetMem16(seg, off)
 	r.regs[SP] = r.regs[SP] + 2
 	log.V(1).Infof("   POP:%04X [%04X:%04X]", r, seg, off)
 	return v
@@ -181,4 +181,14 @@ func (r *Registers) PushReg16(reg Reg, mem *Memory) {
 // Pop a segment register off the stack
 func (r *Registers) PopReg16(reg Reg, mem *Memory) {
 	r.regs[reg] = uint(r.Pop16(mem))
+}
+
+// Push a segment register onto the stack
+func (r *Registers) PushSeg16(seg SReg, mem *Memory) {
+	r.Push16(mem, uint16(r.sregs[seg]))
+}
+
+// Pop a segment register off the stack
+func (r *Registers) PopSeg16(seg SReg, mem *Memory) {
+	r.sregs[seg] = uint(r.Pop16(mem))
 }

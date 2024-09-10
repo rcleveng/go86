@@ -450,9 +450,9 @@ func TestCPU(t *testing.T) {
 				case sregval:
 					cpu.Regs.SetSeg16(r.reg, r.val)
 				case memval8:
-					cpu.Mem.PutMem8(r.seg, r.off, r.val)
+					cpu.Mem.SetMem8(r.seg, r.off, r.val)
 				case memval16:
-					cpu.Mem.PutMem16(r.seg, r.off, r.val)
+					cpu.Mem.SetMem16(r.seg, r.off, r.val)
 				case pushval16:
 					cpu.Regs.Push16(cpu.Mem, r.val)
 				default:
@@ -470,10 +470,10 @@ func TestCPU(t *testing.T) {
 				case sregval:
 					assert.Equal(t, r.val, cpu.Regs.GetSeg16(r.reg), r.reg)
 				case memval8:
-					actual := cpu.Mem.Mem8(r.seg, r.off)
+					actual := cpu.Mem.GetMem8(r.seg, r.off)
 					assert.Equal(t, actual, r.val, r)
 				case memval16:
-					actual := cpu.Mem.Mem16(r.seg, r.off)
+					actual := cpu.Mem.GetMem16(r.seg, r.off)
 					assert.Equal(t, actual, r.val, r)
 				case popval:
 					actual := cpu.Regs.Pop16(cpu.Mem)

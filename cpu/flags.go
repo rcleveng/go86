@@ -63,6 +63,10 @@ func (f *Flags) ReplaceAllFlags(v uint32) {
 	f.eflags = v
 }
 
+func (f *Flags) Value() uint32 {
+	return f.eflags
+}
+
 func (f *Flags) IsEnabled(v uint32) bool {
 	return f.eflags&v != 0
 }
@@ -98,64 +102,50 @@ func (f *Flags) String() string {
 // Update the Zero, Sign, and Parity flags where result is the result of an
 // instruction execution and numbits is either 8 or 16 depending on the
 // instruction.
-func (f *Flags) SetFlagsZSP(result uint, numbits int) {
-	if numbits == 8 {
-		f.SetFlagIf(SF, (result&0x80) != 0)
-		f.SetFlagIf(ZF, (result&0xFF) == 0)
-	} else {
-		f.SetFlagIf(SF, (result&0x8000) != 0)
-		f.SetFlagIf(ZF, (result&0xFFFF) == 0)
-	}
+func (f *Flags) SetFlagsZSP(result uint) {
+	f.SetFlagIf(ZF, result == 0)
+	f.SetFlagIf(SF, (result&0x80) != 0)
 	// Yes. X86 only ever uses LSB for PF
-	count := bits.OnesCount8(uint8(result & 0xFF))
-	f.SetFlagIf(PF, (count&0x01) == 0)
+	count := bits.OnesCount8(uint8(result))
+	f.SetFlagIf(PF, count%2 == 0)
 }
 
 // Update all of the flags where result is the result of an addition
 // instruction using the values for the result, source and destintationm operands
 // and numbits is either 8 or 16 depending on the instruction.
-func (f *Flags) SetFlagsAdd(res, src, dst uint, bits int) {
-	f.SetFlagIf(CF, res>>bits != 0)
-	if bits == 8 {
-		f.SetFlagIf(OF, (res^src)&(res^dst)&0x80 != 0)
-	} else {
-		f.SetFlagIf(OF, (res^src)&(res^dst)&0x8000 != 0)
-	}
-	f.SetFlagIf(AF, (res^src^dst)&0x10 != 0)
-	f.SetFlagsZSP(res, bits)
-}
 
 // SetFlagsAdd16 sets the flags for a 16-bit addition
 func (f *Flags) SetFlagsAdd16(res, src, dst uint) {
-	f.SetFlagsAdd(res, src, dst, 16)
+	f.SetFlagIf(CF, res>>16 != 0)
+	f.SetFlagIf(OF, (res^src)&(res^dst)&0x8000 != 0)
+	f.SetFlagIf(AF, (res^src^dst)&0x10 != 0)
+	f.SetFlagsZSP(res)
 }
 
 // SetFlagsAdd8 sets the flags for an 8-bit addition
 func (f *Flags) SetFlagsAdd8(res, src, dst uint) {
-	f.SetFlagsAdd(res, src, dst, 8)
+	f.SetFlagIf(CF, res>>8 != 0)
+	f.SetFlagIf(OF, (res^src)&(res^dst)&0x80 != 0)
+	f.SetFlagIf(AF, (res^src^dst)&0x10 != 0)
+	f.SetFlagsZSP(res)
 }
 
 // Update all of the flags where result is the result of an subtraction
 // instruction using the values for the result, source and destintationm operands
 // and numbits is either 8 or 16 depending on the instruction.
-func (f *Flags) SetFlagsSub(res, src, dst uint, numbits int) {
-	if numbits == 8 {
-		f.SetFlagIf(CF, res&0x100 == 0x100)
-		f.SetFlagIf(OF, ((dst^src)&(res^dst)&0x80) != 0)
-	} else {
-		f.SetFlagIf(OF, ((dst^src)&(res^dst)&0x8000) != 0)
-		f.SetFlagIf(CF, res&0x10000 == 0x10000)
-	}
-	f.SetFlagIf(AF, (res^src^dst)&0x10 != 0)
-	f.SetFlagsZSP(res, numbits)
-}
 
 func (f *Flags) SetFlagsSub8(res, src, dst uint) {
-	f.SetFlagsSub(res, src, dst, 8)
+	f.SetFlagIf(CF, res&0x100 == 0x100)
+	f.SetFlagIf(OF, ((dst^src)&(res^dst)&0x80) != 0)
+	f.SetFlagIf(AF, (res^src^dst)&0x10 != 0)
+	f.SetFlagsZSP(res)
 }
 
 func (f *Flags) SetFlagsSub16(res, src, dst uint) {
-	f.SetFlagsSub(res, src, dst, 16)
+	f.SetFlagIf(OF, ((dst^src)&(res^dst)&0x8000) != 0)
+	f.SetFlagIf(CF, res&0x10000 == 0x10000)
+	f.SetFlagIf(AF, (res^src^dst)&0x10 != 0)
+	f.SetFlagsZSP(res)
 }
 
 // Helper function, used in CMP, where just PSZ survives
