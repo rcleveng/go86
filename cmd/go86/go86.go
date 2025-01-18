@@ -28,7 +28,7 @@ func doinst(opcodes string) bool {
 		return false
 	}
 
-	cs := 0x1000
+	cs := uint(0x1000)
 	c := cpu.NewCpu(1024 * 1024)
 	bios.NewBios(c)
 	dos.NewDos(c)

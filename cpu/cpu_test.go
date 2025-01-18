@@ -32,7 +32,7 @@ func SetupCPU(t *testing.T, opcodes string) *CPU {
 	cpu.Regs.SetSeg16(DS, DEFAULT_DS)
 	cpu.Regs.SetSeg16(ES, DEFAULT_ES)
 	cpu.Regs.SetReg16(SP, 0x00FF)
-	copy(cpu.Mem.At(int(cpu.Regs.GetSeg16(CS)), int(cpu.Ip)), inst)
+	copy(cpu.Mem.At(uint(cpu.Regs.GetSeg16(CS)), uint(cpu.Ip)), inst)
 	return cpu
 }
 

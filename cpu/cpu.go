@@ -130,14 +130,18 @@ func (cpu *CPU) HandleGrpOneEvIb() error {
 func (cpu *CPU) RunOnce() error {
 	cs := cpu.Regs.CS()
 	ip := uint(cpu.Ip)
-	opcode := cpu.Mem.GetMem8(cs, ip)
+	inst, err := Decode(cpu.Mem.At(cs, ip))
+	if err != nil {
+		return fmt.Errorf("failed to decode instruction at CS:IP %04x:%04x: %v", cs, ip, err)
+	}
+	// opcode := cpu.Mem.GetMem8(cs, ip)
 
 	if cpu.Debugger != nil {
 		cpu.Debugger.Step()
 	}
 	cpu.Ip += 1
 
-	switch opcode {
+	switch inst.OpCode {
 
 	// ADD - Add
 	case 0x00:
@@ -247,15 +251,15 @@ func (cpu *CPU) RunOnce() error {
 
 	// Increment/Decrement registers
 	case 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47:
-		cpu.Regs.Inc16(Reg(opcode-0x40), 1)
+		cpu.Regs.Inc16(Reg(inst.OpCode-0x40), 1)
 	case 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F:
-		cpu.Regs.Dec16(Reg(opcode-0x48), 1)
+		cpu.Regs.Dec16(Reg(inst.OpCode-0x48), 1)
 
 	// Push and pop registers
 	case 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57:
-		cpu.Regs.PushReg16(Reg(opcode-0x50), cpu.Mem)
+		cpu.Regs.PushReg16(Reg(inst.OpCode-0x50), cpu.Mem)
 	case 0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F:
-		cpu.Regs.PopReg16(Reg(opcode-0x50), cpu.Mem)
+		cpu.Regs.PopReg16(Reg(inst.OpCode-0x50), cpu.Mem)
 
 	// Jumps
 	case 0x70:
@@ -296,7 +300,7 @@ func (cpu *CPU) RunOnce() error {
 	case 0x81: // GRP1
 		return cpu.HandleGrpOneEvIv()
 	case 0x82: // ????
-		return fmt.Errorf("unhandled undocumented grp1 OpCode: %x", opcode)
+		return fmt.Errorf("unhandled undocumented grp1 OpCode: %x", inst.OpCode)
 	case 0x83:
 		return cpu.HandleGrpOneEvIb()
 
@@ -381,12 +385,12 @@ func (cpu *CPU) RunOnce() error {
 
 	// Move to register from immediate value
 	case 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7:
-		return cpu.movRegIb(Reg8(opcode - 0xB0))
+		return cpu.movRegIb(Reg8(inst.OpCode - 0xB0))
 	case 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF:
-		return cpu.movRegIv(Reg(opcode - 0xB8))
+		return cpu.movRegIv(Reg(inst.OpCode - 0xB8))
 
 	default:
-		return fmt.Errorf("unhandled OpCode: %x", opcode)
+		return fmt.Errorf("unhandled OpCode: %x", inst.OpCode)
 	}
 	return nil
 }

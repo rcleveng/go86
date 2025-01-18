@@ -19,7 +19,7 @@ func (m *Memory) GetMem8(seg uint, off uint) uint8 {
 	return m.mem[pos]
 }
 
-func (m *Memory) At(seg int, off int) []uint8 {
+func (m *Memory) At(seg uint, off uint) []uint8 {
 	pos := (seg * 0x10) + off
 	return m.mem[pos:]
 }
