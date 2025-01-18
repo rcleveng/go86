@@ -114,20 +114,28 @@ func (f *Flags) SetFlagsZSP(result uint) {
 // instruction using the values for the result, source and destintationm operands
 // and numbits is either 8 or 16 depending on the instruction.
 
-// SetFlagsAdd16 sets the flags for a 16-bit addition
-func (f *Flags) SetFlagsAdd16(res, src, dst uint) {
-	f.SetFlagIf(CF, res>>16 != 0)
-	f.SetFlagIf(OF, (res^src)&(res^dst)&0x8000 != 0)
+// SetFlagsAdd sets the flags for an addition based on the bit width
+func (f *Flags) SetFlagsAdd(res, src, dst uint, bits int) {
+
+	signMask := uint(0x80)
+	if bits == 16 {
+		signMask = 0x8000
+	}
+
+	f.SetFlagIf(CF, res>>bits != 0)
+	f.SetFlagIf(OF, (res^src)&(res^dst)&signMask != 0)
 	f.SetFlagIf(AF, (res^src^dst)&0x10 != 0)
 	f.SetFlagsZSP(res)
 }
 
+// SetFlagsAdd16 sets the flags for a 16-bit addition
+func (f *Flags) SetFlagsAdd16(res, src, dst uint) {
+	f.SetFlagsAdd(res, src, dst, 16)
+}
+
 // SetFlagsAdd8 sets the flags for an 8-bit addition
 func (f *Flags) SetFlagsAdd8(res, src, dst uint) {
-	f.SetFlagIf(CF, res>>8 != 0)
-	f.SetFlagIf(OF, (res^src)&(res^dst)&0x80 != 0)
-	f.SetFlagIf(AF, (res^src^dst)&0x10 != 0)
-	f.SetFlagsZSP(res)
+	f.SetFlagsAdd(res, src, dst, 8)
 }
 
 // Update all of the flags where result is the result of an subtraction
@@ -135,15 +143,25 @@ func (f *Flags) SetFlagsAdd8(res, src, dst uint) {
 // and numbits is either 8 or 16 depending on the instruction.
 
 func (f *Flags) SetFlagsSub8(res, src, dst uint) {
-	f.SetFlagIf(CF, res&0x100 == 0x100)
-	f.SetFlagIf(OF, ((dst^src)&(res^dst)&0x80) != 0)
-	f.SetFlagIf(AF, (res^src^dst)&0x10 != 0)
-	f.SetFlagsZSP(res)
+	f.SetFlagsSub(res, src, dst, 8)
 }
 
 func (f *Flags) SetFlagsSub16(res, src, dst uint) {
-	f.SetFlagIf(OF, ((dst^src)&(res^dst)&0x8000) != 0)
-	f.SetFlagIf(CF, res&0x10000 == 0x10000)
+	f.SetFlagsSub(res, src, dst, 16)
+}
+
+func (f *Flags) SetFlagsSub(res, src, dst uint, bits int) {
+	// default to 8 bit
+	var carryMask uint = 0x100
+	var overflowMask uint = 0x80
+
+	if bits == 16 {
+		carryMask = 0x10000
+		overflowMask = 0x8000
+	}
+
+	f.SetFlagIf(CF, res&carryMask == carryMask)
+	f.SetFlagIf(OF, ((dst^src)&(res^dst)&overflowMask) != 0)
 	f.SetFlagIf(AF, (res^src^dst)&0x10 != 0)
 	f.SetFlagsZSP(res)
 }
@@ -151,4 +169,9 @@ func (f *Flags) SetFlagsSub16(res, src, dst uint) {
 // Helper function, used in CMP, where just PSZ survives
 func (f *Flags) ClearFlagsCOA() {
 	f.eflags &^= (AF | CF | OF)
+}
+
+// Helper function, used in CMP, where just PSZ survives
+func (f *Flags) ClearFlagsCO() {
+	f.eflags &^= (CF | OF)
 }

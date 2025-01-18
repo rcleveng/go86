@@ -28,6 +28,10 @@ type CPU struct {
 	Ip uint16
 	// CPU registers
 	Regs Registers
+	// Current ModRM byte (if exists)
+	ModRM *ModRM
+	// Currently executing instruction
+	Inst *Inst
 
 	Running bool
 	// Interrupt map for interrupts which do not exist as 8086 code contained
@@ -53,109 +57,72 @@ func (cpu *CPU) Run() {
 	}
 }
 
-// HandleGrp18 handles the GRP1 opcode extension for
-func (cpu *CPU) HandleGrpOneEbIb() error {
-	modrm, err := ParseModRM(cpu)
-	if err != nil {
+func (cpu *CPU) HandleGrpOne(left, right Operand) error {
+	if err := cpu.ParseModRMByte(); err != nil {
 		return err
 	}
 	// modrm.Reg is an opcode extension
-	switch modrm.Reg {
+	switch cpu.ModRM.Reg {
 	case 0:
-		return cpu.addEbIb(modrm)
+		return cpu.add(left, right)
 	case 1:
-		return cpu.orEbIb(modrm)
+		return cpu.or(left, right)
 	case 4:
-		return cpu.andEbIb(modrm)
+		return cpu.and(left, right)
 	case 5:
-		return cpu.subEbIb(modrm)
+		return cpu.sub(left, right)
 	case 6:
-		return cpu.xorEbIb(modrm)
+		return cpu.xor(left, right)
 	case 7:
-		return cpu.cmpEbIb(modrm)
+		return cpu.cmp(left, right)
 	default:
-		return fmt.Errorf("unhandled GRP1 opcode: %x", modrm.Reg)
+		return fmt.Errorf("unhandled GRP1 opcode: %x", cpu.ModRM.Reg)
 	}
 }
 
-func (cpu *CPU) HandleGrpOneEvIv() error {
+func (cpu *CPU) ParseModRMByte() error {
+	// TODO - rename this back to just ParseModRM or somethibng
+	// maybe fetchandparse?
+	if cpu.ModRM != nil {
+		// Initially panic here to clean it up and then just guard against it
+		// once we're sure it's safe or to make the api easier
+		// to use
+		panic("modrm already parsed")
+	}
 	modrm, err := ParseModRM(cpu)
 	if err != nil {
 		return err
 	}
-	// modrm.Reg is an opcode extension
-	switch modrm.Reg {
-	case 0:
-		return cpu.addEvIv(modrm)
-	case 1:
-		return cpu.orEvIv(modrm)
-	case 4:
-		return cpu.andEvIv(modrm)
-	case 5:
-		return cpu.subEvIv(modrm)
-	case 6:
-		return cpu.xorEvIv(modrm)
-	case 7:
-		return cpu.cmpEvIv(modrm)
-	default:
-		return fmt.Errorf("unhandled GRP1 opcode: %x", modrm.Reg)
-	}
-}
-
-func (cpu *CPU) HandleGrpOneEvIb() error {
-	modrm, err := ParseModRM(cpu)
-	if err != nil {
-		return err
-	}
-	// modrm.Reg is an opcode extension
-	switch modrm.Reg {
-	case 0:
-		return cpu.addEvIb(modrm)
-	case 1:
-		return cpu.orEvIb(modrm)
-	case 4:
-		return cpu.andEvIb(modrm)
-	case 5:
-		return cpu.subEvIb(modrm)
-	case 6:
-		return cpu.xorEvIb(modrm)
-	case 7:
-		return cpu.cmpEvIb(modrm)
-	default:
-		return fmt.Errorf("unhandled GRP1 opcode: %x", modrm.Reg)
-	}
+	cpu.ModRM = modrm
+	return nil
 }
 
 // RunOnce executes a single instruction.
 func (cpu *CPU) RunOnce() error {
+	// Clean the modrm byte if it was set on the last iteration
+	cpu.ModRM = nil
+	cpu.Inst = nil
+
 	cs := cpu.Regs.CS()
 	ip := uint(cpu.Ip)
 	inst, err := Decode(cpu.Mem.At(cs, ip))
 	if err != nil {
 		return fmt.Errorf("failed to decode instruction at CS:IP %04x:%04x: %v", cs, ip, err)
 	}
-	// opcode := cpu.Mem.GetMem8(cs, ip)
+	cpu.Inst = inst
 
 	if cpu.Debugger != nil {
 		cpu.Debugger.Step()
 	}
-	cpu.Ip += 1
+	// Increment IP *after* the debugger
+	cpu.Ip += uint16(inst.Len)
 
 	switch inst.OpCode {
 
 	// ADD - Add
-	case 0x00:
-		cpu.addEbGb()
-	case 0x01:
-		cpu.addEvGv()
-	case 0x02:
-		cpu.addGbEb()
-	case 0x03:
-		cpu.addGvEv()
-	case 0x04:
-		cpu.addALIb()
-	case 0x05:
-		cpu.addAXIv()
+	case 0x00, 0x01, 0x02, 0x03, 0x04, 0x05:
+		op := StandardOperands[inst.OpCode-0x00]
+		return cpu.add(op.Left, op.Right)
 
 	// PUSH/POP ES
 	case 0x06:
@@ -165,18 +132,10 @@ func (cpu *CPU) RunOnce() error {
 		cpu.Regs.SetSeg16(ES, uint(val))
 
 	// OR - Logical Inclusive OR
-	case 0x08:
-		cpu.orEbGb()
-	case 0x09:
-		cpu.orEvGv()
-	case 0x0A:
-		cpu.orGbEb()
-	case 0x0B:
-		cpu.orGvEv()
-	case 0x0C:
-		cpu.orALIb()
-	case 0x0D:
-		cpu.orAXIv()
+	case 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D:
+		op := StandardOperands[inst.OpCode-0x08]
+		return cpu.or(op.Left, op.Right)
+
 	case 0x0E:
 		cpu.Regs.Push16(cpu.Mem, uint16(cpu.Regs.CS()))
 
@@ -193,61 +152,24 @@ func (cpu *CPU) RunOnce() error {
 		cpu.Regs.SetSeg16(DS, uint(val))
 
 	// AND - Logical AND
-	case 0x20:
-		cpu.andEbGb()
-	case 0x21:
-		cpu.andEvGv()
-	case 0x22:
-		cpu.andGbEb()
-	case 0x23:
-		cpu.andGvEv()
-	case 0x24:
-		cpu.andALIb()
-	case 0x25:
-		cpu.andAXIv()
+	case 0x20, 0x21, 0x22, 0x23, 0x24, 0x25:
+		op := StandardOperands[inst.OpCode-0x20]
+		return cpu.and(op.Left, op.Right)
 
 	// SUB - Subtract
-	case 0x28:
-		cpu.subEbGb()
-	case 0x29:
-		cpu.subEvGv()
-	case 0x2A:
-		cpu.subGbEb()
-	case 0x2B:
-		cpu.subGvEv()
-	case 0x2C:
-		cpu.subALIb()
-	case 0x2D:
-		cpu.subAXIv()
+	case 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D:
+		op := StandardOperands[inst.OpCode-0x28]
+		return cpu.sub(op.Left, op.Right)
 
 	// XOR - Logical Exclusive OR
-	// OR - Logical Inclusive OR
-	case 0x30:
-		cpu.xorEbGb()
-	case 0x31:
-		cpu.xorEvGv()
-	case 0x32:
-		cpu.xorGbEb()
-	case 0x33:
-		cpu.xorGvEv()
-	case 0x34:
-		cpu.xorALIb()
-	case 0x35:
-		cpu.xorAXIv()
+	case 0x30, 0x31, 0x32, 0x33, 0x34, 0x35:
+		op := StandardOperands[inst.OpCode-0x30]
+		return cpu.xor(op.Left, op.Right)
 
-	// CMP - Compare
-	case 0x38:
-		cpu.cmpEbGb()
-	case 0x39:
-		cpu.cmpEvGv()
-	case 0x3A:
-		cpu.cmpGbEb()
-	case 0x3B:
-		cpu.cmpGvEv()
-	case 0x3C:
-		cpu.cmpALIb()
-	case 0x3D:
-		cpu.cmpAXIv()
+		// CMP - Compare
+	case 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D:
+		op := StandardOperands[inst.OpCode-0x38]
+		return cpu.cmp(op.Left, op.Right)
 
 	// Increment/Decrement registers
 	case 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47:
@@ -259,7 +181,7 @@ func (cpu *CPU) RunOnce() error {
 	case 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57:
 		cpu.Regs.PushReg16(Reg(inst.OpCode-0x50), cpu.Mem)
 	case 0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F:
-		cpu.Regs.PopReg16(Reg(inst.OpCode-0x50), cpu.Mem)
+		cpu.Regs.PopReg16(Reg(inst.OpCode-0x58), cpu.Mem)
 
 	// Jumps
 	case 0x70:
@@ -296,41 +218,41 @@ func (cpu *CPU) RunOnce() error {
 		return cpu.jg8()
 
 	case 0x80: // GRP1
-		return cpu.HandleGrpOneEbIb()
+		return cpu.HandleGrpOne(Eb, Ib)
 	case 0x81: // GRP1
-		return cpu.HandleGrpOneEvIv()
+		return cpu.HandleGrpOne(Ev, Iv)
 	case 0x82: // ????
 		return fmt.Errorf("unhandled undocumented grp1 OpCode: %x", inst.OpCode)
 	case 0x83:
-		return cpu.HandleGrpOneEvIb()
+		return cpu.HandleGrpOne(Ev, Ib)
 
 	// Tests
 	case 0x84:
-		cpu.testEbGb()
+		return cpu.test(Eb, Gb)
 	case 0x85:
-		cpu.testEvGv()
+		return cpu.test(Ev, Gv)
 
 	// XCHG - Exchange
 	case 0x86:
-		cpu.xchgGbEb()
+		return cpu.xchg(Gb, Eb)
 	case 0x87:
-		cpu.xchgGvEv()
+		return cpu.xchg(Gv, Ev)
 
 	// MOV - Move Gv, Ev and family
 	case 0x88:
-		return cpu.movEbGb()
+		return cpu.mov(Eb, Gb)
 	case 0x89:
-		return cpu.movEvGv()
+		return cpu.mov(Ev, Gv)
 	case 0x8A:
-		return cpu.movGbEb()
+		return cpu.mov(Gb, Eb)
 	case 0x8B:
-		return cpu.movGvEv()
+		return cpu.mov(Gv, Ev)
 	case 0x8C:
-		return cpu.moveEwSw()
+		return cpu.mov(Ew, Sw)
 	case 0x8D:
 		return cpu.leaGvM()
 	case 0x8E:
-		return cpu.movSwEw()
+		return cpu.mov(Sw, Ew)
 	case 0x8F:
 		return cpu.popEv()
 
@@ -375,19 +297,29 @@ func (cpu *CPU) RunOnce() error {
 
 	// MOVE - moffs
 	case 0xA0:
-		return cpu.movALOb()
+		return cpu.mov(RegAL, Ob)
 	case 0xA1:
-		return cpu.movAXOv()
+		return cpu.mov(RegAX, Ov)
 	case 0xA2:
-		return cpu.movObAL()
+		return cpu.mov(Ob, RegAL)
 	case 0xA3:
-		return cpu.movOvAX()
+		return cpu.mov(Ov, RegAX)
 
 	// Move to register from immediate value
 	case 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7:
 		return cpu.movRegIb(Reg8(inst.OpCode - 0xB0))
 	case 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF:
 		return cpu.movRegIv(Reg(inst.OpCode - 0xB8))
+
+	// CLI - Clear Interrupt Flag
+	case 0xFA:
+		cpu.Flags.ClearFlag(IF)
+		return nil
+
+	// STI - Set Interrupt Flag
+	case 0xFB:
+		cpu.Flags.SetFlags(IF)
+		return nil
 
 	default:
 		return fmt.Errorf("unhandled OpCode: %x", inst.OpCode)

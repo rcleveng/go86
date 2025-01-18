@@ -474,6 +474,9 @@ func TestCPU(t *testing.T) {
 					assert.Equal(t, actual, r.val, r)
 				case memval16:
 					actual := cpu.Mem.GetMem16(r.seg, r.off)
+					if actual != r.val {
+						fmt.Printf("%#v", r)
+					}
 					assert.Equal(t, actual, r.val, r)
 				case popval:
 					actual := cpu.Regs.Pop16(cpu.Mem)
