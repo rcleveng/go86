@@ -58,7 +58,7 @@ func (cpu *CPU) Run() {
 }
 
 func (cpu *CPU) HandleGrpOne(left, right Operand) error {
-	if err := cpu.ParseModRMByte(); err != nil {
+	if err := cpu.FetchModRM(); err != nil {
 		return err
 	}
 	// modrm.Reg is an opcode extension
@@ -80,7 +80,71 @@ func (cpu *CPU) HandleGrpOne(left, right Operand) error {
 	}
 }
 
-func (cpu *CPU) ParseModRMByte() error {
+func (cpu *CPU) HandleGrpTwo(left, right Operand) error {
+	if err := cpu.FetchModRM(); err != nil {
+		return err
+	}
+	// modrm.Reg is an opcode extension
+	switch cpu.ModRM.Reg {
+	/*
+		case 0:
+			return cpu.rol(left, right)
+		case 1:
+			return cpu.ror(left, right)
+		case 2:
+			return cpu.rcl(left, right)
+		case 3:
+			return cpu.rcr(left, right)
+	*/
+	case 4:
+		return cpu.shl(left, right)
+	case 5:
+		return cpu.shr(left, right)
+	case 7:
+		return cpu.sar(left, right)
+	default:
+		return fmt.Errorf("unhandled GRP2 opcode: %x", cpu.ModRM.Reg)
+	}
+}
+
+func (cpu *CPU) HandleGrpThree(left, right Operand) error {
+	if err := cpu.FetchModRM(); err != nil {
+		return err
+	}
+	// modrm.Reg is an opcode extension
+	switch cpu.ModRM.Reg {
+	case 0:
+		return cpu.test(left, right)
+	case 2:
+		return cpu.not(left)
+	case 3:
+		return cpu.neg(left)
+	case 4:
+		if left.Bits() == 8 {
+			return cpu.mul(RegAL, left)
+		}
+		return cpu.mul(RegAX, left)
+	case 5:
+		if left.Bits() == 8 {
+			return cpu.imul(RegAL, left)
+		}
+		return cpu.imul(RegAX, left)
+	case 6:
+		if left.Bits() == 8 {
+			return cpu.div(RegAL, left)
+		}
+		return cpu.div(RegAX, left)
+	case 7:
+		if left.Bits() == 8 {
+			return cpu.idiv(RegAL, left)
+		}
+		return cpu.idiv(RegAX, left)
+	default:
+		return fmt.Errorf("unhandled GRP1 opcode: %x", cpu.ModRM.Reg)
+	}
+}
+
+func (cpu *CPU) FetchModRM() error {
 	// TODO - rename this back to just ParseModRM or somethibng
 	// maybe fetchandparse?
 	if cpu.ModRM != nil {
@@ -89,7 +153,12 @@ func (cpu *CPU) ParseModRMByte() error {
 		// to use
 		panic("modrm already parsed")
 	}
-	modrm, err := ParseModRM(cpu)
+	b, err := cpu.Fetch8()
+	if err != nil {
+		return err
+	}
+
+	modrm, err := NewModRM(cpu, b)
 	if err != nil {
 		return err
 	}
@@ -310,6 +379,41 @@ func (cpu *CPU) RunOnce() error {
 		return cpu.movRegIb(Reg8(inst.OpCode - 0xB0))
 	case 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF:
 		return cpu.movRegIv(Reg(inst.OpCode - 0xB8))
+
+	case 0xC0: // GRP2
+		return cpu.HandleGrpTwo(Eb, Ib)
+	case 0xC1: // GRP2
+		return cpu.HandleGrpTwo(Ev, Ib)
+	case 0xC6:
+		if err := cpu.FetchModRM(); err != nil {
+			return err
+		}
+		if cpu.ModRM.Reg != 0 {
+			return fmt.Errorf("unexpected reg value for opcode 0xC6: '%x'", cpu.ModRM.Reg)
+		}
+		return cpu.mov(Eb, Ib)
+	case 0xC7:
+		if err := cpu.FetchModRM(); err != nil {
+			return err
+		}
+		if cpu.ModRM.Reg != 0 {
+			return fmt.Errorf("unexpected reg value for opcode 0xC6: '%x'", cpu.ModRM.Reg)
+		}
+		return cpu.mov(Ev, Iv)
+
+	case 0xD0: // GRP2
+		return cpu.HandleGrpTwo(Eb, ValOne)
+	case 0xD1: // GRP2
+		return cpu.HandleGrpTwo(Ev, ValOne)
+	case 0xD2: // GRP2
+		return cpu.HandleGrpTwo(Eb, RegCL)
+	case 0xD3: // GRP2
+		return cpu.HandleGrpTwo(Ev, RegCL)
+
+	case 0xF6: // GRP2
+		return cpu.HandleGrpThree(Eb, Ib)
+	case 0xF7: // GRP2
+		return cpu.HandleGrpThree(Ev, Iv)
 
 	// CLI - Clear Interrupt Flag
 	case 0xFA:

@@ -153,7 +153,7 @@ func TestCPU(t *testing.T) {
 		{"SHL/ALimm8", "C0E002", []h{regval8{AL, 0x1}}, []w{regval8{AL, 0x4}}, ""},
 		{"SHL/AXimm16", "C1E002", []h{regval16{AX, 0x1}}, []w{regval16{AX, 0x4}}, ""},
 		// SAR (abbreviated)
-		{"SAR/ALimm8/NEG", "C0F802", []h{regval16{AX, 0x80}}, []w{regval16{AX, 0xA0}}, ""},
+		{"SAR/ALimm8/NEG", "C0F802", []h{regval16{AX, 0x80}}, []w{regval16{AX, 0xE0}}, ""},
 		{"SAR/ALimm8", "C0F802", []h{regval8{AL, 0x8}}, []w{regval8{AL, 0x2}}, ""},
 		{"SAR/AXimm16", "C1F80200", []h{regval16{AX, 0x8}}, []w{regval16{AX, 0x2}}, ""},
 		// SHR (abbreviated)

@@ -73,3 +73,32 @@ func (cpu *CPU) test(leftop, rightop Operand) error {
 	cpu.Flags.SetFlagsZSP(left & right)
 	return nil
 }
+
+// NOT - Logical NOT
+
+func (cpu *CPU) not(op Operand) error {
+	value, err := op.GetByOperand(cpu)
+	if err != nil {
+		return err
+	}
+
+	result := ^value
+
+	op.SetByOperand(cpu, result)
+	return nil
+}
+
+// NEG - Two's Complement Negation
+
+func (cpu *CPU) neg(op Operand) error {
+	value, err := op.GetByOperand(cpu)
+	if err != nil {
+		return err
+	}
+
+	result := -int(value)
+
+	op.SetByOperand(cpu, uint(result))
+	cpu.Flags.SetFlagsSub(uint(result), 0, value, op.Bits())
+	return nil
+}

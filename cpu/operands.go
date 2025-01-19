@@ -29,18 +29,20 @@ func (r Operand) HasModRM() bool {
 }
 
 var (
-	Eb    = Operand{"Eb", 8, true}
-	Ev    = Operand{"Ev", 16, true}
-	Ew    = Operand{"Ee", 16, true}
-	Gb    = Operand{"Gb", 8, true}
-	Gv    = Operand{"Gv", 16, true}
-	Ib    = Operand{"Ib", 8, false}
-	Iv    = Operand{"Iv", 16, false}
-	Ob    = Operand{"Ob", 8, false}
-	Ov    = Operand{"Ob", 16, false}
-	Sw    = Operand{"Sw", 16, true}
-	RegAL = Operand{"AL", 8, false}
-	RegAX = Operand{"AX", 16, false}
+	Eb     = Operand{"Eb", 8, true}
+	Ev     = Operand{"Ev", 16, true}
+	Ew     = Operand{"Ee", 16, true}
+	Gb     = Operand{"Gb", 8, true}
+	Gv     = Operand{"Gv", 16, true}
+	Ib     = Operand{"Ib", 8, false}
+	Iv     = Operand{"Iv", 16, false}
+	Ob     = Operand{"Ob", 8, false}
+	Ov     = Operand{"Ob", 16, false}
+	Sw     = Operand{"Sw", 16, true}
+	RegAL  = Operand{"AL", 8, false}
+	RegAX  = Operand{"AX", 16, false}
+	RegCL  = Operand{"CL", 8, false}
+	ValOne = Operand{"1", 8, false}
 )
 
 var (
@@ -100,6 +102,10 @@ func (op Operand) GetByOperand(cpu *CPU) (uint, error) {
 		return cpu.Regs.GetReg8(AL), nil
 	case RegAX:
 		return cpu.Regs.GetReg16(AX), nil
+	case RegCL:
+		return cpu.Regs.GetReg8(CL), nil
+	case ValOne:
+		return uint(1), nil
 	}
 
 	return 0, fmt.Errorf("GetByOperand: unknown operand: %v", op)
@@ -152,7 +158,7 @@ func (op Operand) SetByOperand(cpu *CPU, val uint) error {
 func ParseTwoOperands(cpu *CPU, leftop, rightop Operand) (uint, uint, error) {
 	if leftop.HasModRM() || rightop.HasModRM() {
 		if cpu.ModRM == nil {
-			err := cpu.ParseModRMByte()
+			err := cpu.FetchModRM()
 			if err != nil {
 				return 0, 0, err
 			}

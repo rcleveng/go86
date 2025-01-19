@@ -14,12 +14,7 @@ type ModRM struct {
 	// Base  uint8
 }
 
-func ParseModRM(r CpuInstructionReader) (*ModRM, error) {
-	b, err := r.Fetch8()
-	if err != nil {
-		return nil, err
-	}
-
+func NewModRM(r CpuInstructionReader, b uint8) (*ModRM, error) {
 	m := &ModRM{
 		raw: b,
 		Mod: (b & 0xc0) >> 6,

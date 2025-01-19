@@ -35,23 +35,21 @@ func (cpu *CPU) mov(leftop, rightop Operand) error {
 
 // leaGvM - Load Effective Address
 func (cpu *CPU) leaGvM() error {
-	modrm, err := ParseModRM(cpu)
-	if err != nil {
+	if err := cpu.FetchModRM(); err != nil {
 		return err
 	}
-	offset := modrm.effectiveAddressOffset16(cpu)
-	cpu.Regs.SetReg16(Reg(modrm.Reg), offset)
+	offset := cpu.ModRM.effectiveAddressOffset16(cpu)
+	cpu.Regs.SetReg16(Reg(cpu.ModRM.Reg), offset)
 	return nil
 }
 
 // popEv - Pop
 func (cpu *CPU) popEv() error {
-	modrm, err := ParseModRM(cpu)
-	if err != nil {
+	if err := cpu.FetchModRM(); err != nil {
 		return err
 	}
 	value := cpu.Regs.Pop16(cpu.Mem)
-	modrm.SetRm16(cpu, uint(value))
+	cpu.ModRM.SetRm16(cpu, uint(value))
 	return nil
 }
 
