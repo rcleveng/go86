@@ -9,6 +9,7 @@ import (
 )
 
 func TestCpuSmoke(t *testing.T) {
+
 	cpu := NewCpu(1024 * 1024)
 	assert.Equal(t, cpu.Ip, uint16(0))
 }
@@ -273,7 +274,9 @@ func TestCPU(t *testing.T) {
 			[]h{
 				regval16{BX, 0x0100},
 			},
-			[]w{ipval{0x0102}}, ""},
+			// This u	sed to be 0x0102, but I think that was wrong
+			// Since this is an absolute and not relative offset
+			[]w{ipval{0x0100}}, ""},
 		{"CALL/FAR/FF/3", "FF1F",
 			[]h{
 				regval16{BX, 0x100},
@@ -482,7 +485,7 @@ func TestCPU(t *testing.T) {
 					actual := cpu.Regs.Pop16(cpu.Mem)
 					assert.Equal(t, actual, r.val)
 				case ipval:
-					assert.Equal(t, r.val, cpu.Ip, r.val)
+					assert.Equal(t, uint16(r.val), cpu.Ip, r.val)
 				default:
 					t.Fatalf("Unknown want: %#v", r)
 				}

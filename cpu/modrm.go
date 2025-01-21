@@ -1,5 +1,7 @@
 package go86
 
+import "fmt"
+
 type ModRM struct {
 	raw    uint8
 	Mod    uint8
@@ -125,6 +127,16 @@ func (m *ModRM) GetRm16(cpu *CPU) uint {
 	offset := m.effectiveAddressOffset16(cpu)
 	seg := m.segmentToUse(cpu)
 	return uint(cpu.Mem.GetMem16(seg, offset))
+}
+
+// Gets the memory location (segment:offset) to use to lookup indirect values
+func (m *ModRM) GetMemoryLocation(cpu *CPU) (seg uint, offset uint, err error) {
+	if m.Mod == 3 {
+		return uint(CS), 0, fmt.Errorf("can't get memory location when mod == 3")
+	}
+	offset = m.effectiveAddressOffset16(cpu)
+	seg = m.segmentToUse(cpu)
+	return seg, offset, nil
 }
 
 func (m *ModRM) SetRm16(cpu *CPU, value uint) {

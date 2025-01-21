@@ -1,12 +1,103 @@
 package go86
 
-// jump
-func (cpu *CPU) jump8(rel int8) {
+// JMP REL8
+func (cpu *CPU) jmprel8() error {
+	urel, err := cpu.Fetch8()
+	if err != nil {
+		return err
+	}
+	return cpu.jump8rel(int8(urel))
+}
+
+// JMP REL16 (note, this can be a negative displacement)
+func (cpu *CPU) jmprel16() error {
+	urel, err := cpu.Fetch16()
+	if err != nil {
+		return err
+	}
+	return cpu.jump16rel(int16(urel))
+}
+
+// JMP far absolute (ptr16:16)
+// Example: 0000000E  EA45230000        jmp 0x0:0x2345
+func (cpu *CPU) jmpFarAbs() error {
+	offset, err := cpu.Fetch16()
+	if err != nil {
+		return err
+	}
+	seg, err := cpu.Fetch16()
+	if err != nil {
+		return err
+	}
+	cpu.Regs.SetSeg16(CS, uint(seg))
+	cpu.Ip = offset
+	return nil
+}
+
+func (cpu *CPU) jmpNearAbsIndirect() error {
+	// near is always 16 bits
+	offset := cpu.ModRM.GetRm16(cpu)
+	cpu.Ip = uint16(offset)
+	return nil
+}
+
+func (cpu *CPU) callNearAbsIndirect() error {
+	// near is always 16 bits
+	offset := cpu.ModRM.GetRm16(cpu)
+	cpu.Regs.PushSeg16(CS, cpu.Mem)
+	cpu.Regs.Push16(cpu.Mem, cpu.Ip)
+	cpu.Ip = uint16(offset)
+	return nil
+}
+
+func (cpu *CPU) jmpFarAbsIndirect() error {
+	segment, offset, err := cpu.ModRM.GetMemoryLocation(cpu)
+	if err != nil {
+		return err
+	}
+
+	off := cpu.Mem.GetMem16(segment, offset)
+	seg := cpu.Mem.GetMem16(segment, offset+2)
+
+	cpu.Regs.SetSeg16(CS, uint(seg))
+	cpu.Ip = uint16(off)
+	return nil
+}
+
+func (cpu *CPU) callFarAbsIndirect() error {
+	segment, offset, err := cpu.ModRM.GetMemoryLocation(cpu)
+	if err != nil {
+		return err
+	}
+	cpu.Regs.PushSeg16(CS, cpu.Mem)
+	cpu.Regs.Push16(cpu.Mem, cpu.Ip)
+
+	off := cpu.Mem.GetMem16(segment, offset)
+	seg := cpu.Mem.GetMem16(segment, offset+2)
+
+	cpu.Regs.SetSeg16(CS, uint(seg))
+	cpu.Ip = uint16(off)
+	return nil
+}
+
+// jump to a relative 16 bit offset.
+func (cpu *CPU) jump8rel(rel int8) error {
 	if rel < 0 {
 		cpu.Ip -= uint16(-rel)
 	} else {
 		cpu.Ip += uint16(rel)
 	}
+	return nil
+}
+
+// jump
+func (cpu *CPU) jump16rel(rel int16) error {
+	if rel < 0 {
+		cpu.Ip -= uint16(-rel)
+	} else {
+		cpu.Ip += uint16(rel)
+	}
+	return nil
 }
 
 func (cpu *CPU) jumpIfFlag8(flag uint32) error {
@@ -15,7 +106,7 @@ func (cpu *CPU) jumpIfFlag8(flag uint32) error {
 		return err
 	}
 	if cpu.Flags.IsEnabled(flag) {
-		cpu.jump8(int8(rel))
+		return cpu.jump8rel(int8(rel))
 	}
 	return nil
 }
@@ -27,7 +118,7 @@ func (cpu *CPU) jumpIfNoFlag8(flag uint32) error {
 		return err
 	}
 	if !cpu.Flags.IsEnabled(flag) {
-		cpu.jump8(int8(rel))
+		return cpu.jump8rel(int8(rel))
 	}
 	return nil
 }
@@ -74,7 +165,7 @@ func (cpu *CPU) ja8() error {
 		return err
 	}
 	if !cpu.Flags.IsEnabled(CarryFlag) && !cpu.Flags.IsEnabled(ZeroFlag) {
-		cpu.jump8(int8(rel))
+		return cpu.jump8rel(int8(rel))
 	}
 	return nil
 }
@@ -108,7 +199,7 @@ func (cpu *CPU) jl8() error {
 	sf := cpu.Flags.IsEnabled(SignFlag)
 	of := cpu.Flags.IsEnabled(OverflowFlag)
 	if sf != of {
-		cpu.jump8(int8(rel))
+		return cpu.jump8rel(int8(rel))
 	}
 	return nil
 }
@@ -123,7 +214,7 @@ func (cpu *CPU) jle8() error {
 	of := cpu.Flags.IsEnabled(OverflowFlag)
 	zf := cpu.Flags.IsEnabled(ZeroFlag)
 	if zf || sf != of {
-		cpu.jump8(int8(rel))
+		return cpu.jump8rel(int8(rel))
 	}
 	return nil
 }
@@ -138,7 +229,7 @@ func (cpu *CPU) jg8() error {
 	of := cpu.Flags.IsEnabled(OverflowFlag)
 	zf := cpu.Flags.IsEnabled(ZeroFlag)
 	if !zf && sf == of {
-		cpu.jump8(int8(rel))
+		return cpu.jump8rel(int8(rel))
 	}
 	return nil
 }
@@ -152,9 +243,19 @@ func (cpu *CPU) jge8() error {
 	sf := cpu.Flags.IsEnabled(SignFlag)
 	of := cpu.Flags.IsEnabled(OverflowFlag)
 	if sf == of {
-		cpu.jump8(int8(rel))
+		return cpu.jump8rel(int8(rel))
 	}
 	return nil
+}
+
+// callNear
+func (cpu *CPU) callNear() error {
+	off, err := cpu.Fetch16()
+	if err != nil {
+		return err
+	}
+	cpu.Regs.Push16(cpu.Mem, cpu.Ip)
+	return cpu.jump16rel(int16(off))
 }
 
 // callFar - call far
@@ -171,5 +272,18 @@ func (cpu *CPU) callFar() error {
 	cpu.Regs.Push16(cpu.Mem, cpu.Ip)
 	cpu.Regs.SetSeg16(CS, uint(seg))
 	cpu.Ip = off & 0xffff // mask to 16 bits
+	return nil
+}
+
+// jcxz - jump if cx is zero
+func (cpu *CPU) jcxz() error {
+	// Need to fetch the next value before checking CX
+	urel, err := cpu.Fetch8()
+	if err != nil {
+		return err
+	}
+	if cpu.Regs.GetReg16(CX) == 0 {
+		return cpu.jump8rel(int8(urel))
+	}
 	return nil
 }

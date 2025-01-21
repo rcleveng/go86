@@ -120,27 +120,67 @@ func (cpu *CPU) HandleGrpThree(left, right Operand) error {
 	case 3:
 		return cpu.neg(left)
 	case 4:
-		if left.Bits() == 8 {
-			return cpu.mul(RegAL, left)
-		}
-		return cpu.mul(RegAX, left)
+		return cpu.mul(left)
 	case 5:
-		if left.Bits() == 8 {
-			return cpu.imul(RegAL, left)
-		}
-		return cpu.imul(RegAX, left)
+		return cpu.imul(left)
 	case 6:
-		if left.Bits() == 8 {
-			return cpu.div(RegAL, left)
-		}
-		return cpu.div(RegAX, left)
+		return cpu.div(left)
 	case 7:
-		if left.Bits() == 8 {
-			return cpu.idiv(RegAL, left)
-		}
-		return cpu.idiv(RegAX, left)
+		return cpu.idiv(left)
 	default:
 		return fmt.Errorf("unhandled GRP1 opcode: %x", cpu.ModRM.Reg)
+	}
+}
+
+// FE only has 0 and 1 and is 8 bit
+func (cpu *CPU) HandleFE() error {
+	if err := cpu.FetchModRM(); err != nil {
+		return err
+	}
+	// modrm.Reg is an opcode extension
+	switch cpu.ModRM.Reg {
+	case 0:
+		val := cpu.ModRM.GetRm8(cpu)
+		cpu.ModRM.SetRm8(cpu, val+1)
+		return nil
+	case 1:
+		val := cpu.ModRM.GetRm8(cpu)
+		cpu.ModRM.SetRm8(cpu, val-1)
+		return nil
+	default:
+		return fmt.Errorf("unhandled FE opcode: %x", cpu.ModRM.Reg)
+	}
+}
+
+// Ev is the only operand here
+func (cpu *CPU) HandleFF() error {
+	if err := cpu.FetchModRM(); err != nil {
+		return err
+	}
+	// modrm.Reg is an opcode extension
+	switch cpu.ModRM.Reg {
+	case 0:
+		val := cpu.ModRM.GetRm16(cpu)
+		cpu.ModRM.SetRm16(cpu, val+1)
+		return nil
+	case 1:
+		val := cpu.ModRM.GetRm16(cpu)
+		cpu.ModRM.SetRm16(cpu, val-1)
+		return nil
+	case 2:
+		return cpu.callNearAbsIndirect()
+	case 3:
+		return cpu.callFarAbsIndirect()
+	case 4:
+		return cpu.jmpNearAbsIndirect()
+	case 5:
+		return cpu.jmpFarAbsIndirect()
+	case 6:
+		val := cpu.ModRM.GetRm16(cpu)
+		cpu.Regs.Push16(cpu.Mem, uint16(val))
+		return nil
+	default:
+		return fmt.Errorf("unhandled FF opcode: %x", cpu.ModRM.Reg)
 	}
 }
 
@@ -410,9 +450,19 @@ func (cpu *CPU) RunOnce() error {
 	case 0xD3: // GRP2
 		return cpu.HandleGrpTwo(Ev, RegCL)
 
-	case 0xF6: // GRP2
+	// JMP
+	case 0xE3:
+		return cpu.jcxz()
+	case 0xE9:
+		return cpu.jmprel16()
+	case 0xEA:
+		return cpu.jmpFarAbs()
+	case 0xEB:
+		return cpu.jmprel8()
+
+	case 0xF6: // GRP3
 		return cpu.HandleGrpThree(Eb, Ib)
-	case 0xF7: // GRP2
+	case 0xF7: // GRP3
 		return cpu.HandleGrpThree(Ev, Iv)
 
 	// CLI - Clear Interrupt Flag
@@ -424,6 +474,11 @@ func (cpu *CPU) RunOnce() error {
 	case 0xFB:
 		cpu.Flags.SetFlags(IF)
 		return nil
+
+	case 0xFE:
+		return cpu.HandleFE() // Eb
+	case 0xFF:
+		return cpu.HandleFF() // Ev
 
 	default:
 		return fmt.Errorf("unhandled OpCode: %x", inst.OpCode)

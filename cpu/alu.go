@@ -18,7 +18,6 @@ func (cpu *CPU) add(leftop, rightop Operand) error {
 }
 
 // SUB - Subtract
-
 func (cpu *CPU) sub(leftop, rightop Operand) error {
 	left, right, err := ParseTwoOperands(cpu, leftop, rightop)
 	if err != nil {
@@ -72,8 +71,8 @@ func (cpu *CPU) sar(leftop, rightop Operand) error {
 		return fmt.Errorf("incorrect bits for left operand: %#v", leftop)
 	}
 
-	leftop.SetByOperand(cpu, uint(result))
-	cpu.Flags.SetFlagsZSP(uint(result))
+	leftop.SetByOperand(cpu, result)
+	cpu.Flags.SetFlagsZSP(result)
 	cpu.Flags.SetFlagIf(CarryFlag, cf)
 
 	return nil
@@ -97,92 +96,118 @@ func (cpu *CPU) shl(leftop, rightop Operand) error {
 }
 
 // MUL - Unsigned Multiply
-func (cpu *CPU) mul(leftop, rightop Operand) error {
-	left, right, err := ParseTwoOperands(cpu, leftop, rightop)
+// always called for grp3
+func (cpu *CPU) mul(op Operand) error {
+	left := cpu.Regs.GetReg16(AX)
+	if op.Bits() == 8 {
+		left &= 0x00ff
+	}
+	right, err := op.GetByOperand(cpu)
 	if err != nil {
 		return err
 	}
 
 	result := left * right
-	cf := result>>(leftop.Bits()) != 0
 
-	leftop.SetByOperand(cpu, result)
-	cpu.Flags.SetFlagsZSP(result)
-	// Set CF and OF if the result cannot fit in the destination operand
+	// if bits is 16, then DX gets the top 16 bits of result.
+	cpu.Regs.SetReg16(AX, result)
+	var cf bool
+	switch op.Bits() {
+	case 8:
+		cf = (result & 0xff00) != 0
+	case 16:
+		cf = (result & 0xffff0000) != 0
+		dx := (result & 0xffff0000) >> 16
+		cpu.Regs.SetReg16(DX, dx)
+	}
+	// If AH or DX contain values, both the carry flag
+	// and overflow flags should be set.  ZSP are undefined.
 	cpu.Flags.SetFlagIf(CarryFlag|OverflowFlag, cf)
-
 	return nil
 }
 
 // IMUL - Signed Multiply
-func (cpu *CPU) imul(leftop, rightop Operand) error {
-	left, right, err := ParseTwoOperands(cpu, leftop, rightop)
+func (cpu *CPU) imul(op Operand) error {
+	left := cpu.Regs.GetReg16(AX)
+	if op.Bits() == 8 {
+		left &= 0x00ff
+	}
+	right, err := op.GetByOperand(cpu)
 	if err != nil {
 		return err
 	}
 
 	result := int(left) * int(right)
-	cf := uint(result)>>(leftop.Bits()) != 0
 
-	leftop.SetByOperand(cpu, uint(result))
-	cpu.Flags.SetFlagsZSP(uint(result))
-	// Set CF and OF if the result cannot fit in the destination operand
-	cpu.Flags.SetFlagIf(CarryFlag|OverflowFlag, cf)
-
+	// if bits is 16, then DX gets the top 16 bits of result.
+	// If AH or DX contain values, both the carry flag
+	// and overflow flags should be set.  ZSP are undefined.
+	cpu.Regs.SetReg16(AX, uint(result))
+	switch op.Bits() {
+	case 8:
+		cf := (result & 0xff00) != 0
+		cpu.Flags.SetFlagIf(CarryFlag|OverflowFlag, cf)
+	case 16:
+		cf := (result & 0xffff0000) != 0
+		cpu.Flags.SetFlagIf(CarryFlag|OverflowFlag, cf)
+		dx := uint(result&0xffff0000) >> 16
+		cpu.Regs.SetReg16(DX, dx)
+	}
 	return nil
 }
 
 // DIV - Unsigned Divide
-func (cpu *CPU) div(leftop, rightop Operand) error {
-	left, right, err := ParseTwoOperands(cpu, leftop, rightop)
+func (cpu *CPU) div(op Operand) error {
+	left := cpu.Regs.GetReg16(AX)
+	if op.Bits() == 8 {
+		left &= 0x00ff
+	}
+	right, err := op.GetByOperand(cpu)
 	if err != nil {
 		return err
 	}
-
 	if right == 0 {
 		return fmt.Errorf("division by zero")
 	}
 
 	quotient := left / right
 	remainder := left % right
-	leftop.SetByOperand(cpu, quotient)
 
-	switch leftop.Bits() {
+	switch op.Bits() {
 	case 8: // 8 bit uses AL for quotient, AH for remainder
+		cpu.Regs.SetReg8(AL, quotient)
 		cpu.Regs.SetReg8(AH, uint(remainder))
 	case 16: // 8 bit uses AX for quotient, DX for remainder
+		cpu.Regs.SetReg16(AX, quotient)
 		cpu.Regs.SetReg16(DX, uint(remainder))
 	}
-	cpu.Flags.SetFlagsZSP(quotient)
-	cpu.Flags.ClearFlagsCO()
-
 	return nil
 }
 
 // IDIV - Signed Divide
-func (cpu *CPU) idiv(leftop, rightop Operand) error {
-	left, right, err := ParseTwoOperands(cpu, leftop, rightop)
+func (cpu *CPU) idiv(op Operand) error {
+	left := cpu.Regs.GetReg16(AX)
+	if op.Bits() == 8 {
+		left &= 0x00ff
+	}
+	right, err := op.GetByOperand(cpu)
 	if err != nil {
 		return err
 	}
-
 	if right == 0 {
-		// TODO - Handle with processor exception once implemented
 		return fmt.Errorf("division by zero")
 	}
 
 	quotient := int(left) / int(right)
 	remainder := int(left) % int(right)
-	leftop.SetByOperand(cpu, uint(quotient))
 
-	switch leftop.Bits() {
+	switch op.Bits() {
 	case 8: // 8 bit uses AL for quotient, AH for remainder
+		cpu.Regs.SetReg8(AL, uint(quotient))
 		cpu.Regs.SetReg8(AH, uint(remainder))
-	case 16: // 16 bit uses AX for quotient, DX for remainder
+	case 16: // 8 bit uses AX for quotient, DX for remainder
+		cpu.Regs.SetReg16(AX, uint(quotient))
 		cpu.Regs.SetReg16(DX, uint(remainder))
 	}
-	cpu.Flags.SetFlagsZSP(uint(quotient))
-	cpu.Flags.ClearFlagsCO()
-
 	return nil
 }
