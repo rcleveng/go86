@@ -287,3 +287,49 @@ func (cpu *CPU) jcxz() error {
 	}
 	return nil
 }
+
+func (cpu *CPU) loopOnCondition(cond bool) error {
+	urel, err := cpu.Fetch8()
+	if err != nil {
+		return err
+	}
+	cpu.Regs.Dec16(CX, 1)
+	if cpu.Regs.GetReg16(CX) != 0 && cond {
+		return cpu.jump8rel(int8(urel))
+	}
+	return nil
+}
+
+func (cpu *CPU) loop() error {
+	return cpu.loopOnCondition(true)
+}
+
+func (cpu *CPU) loope() error {
+	zf := cpu.Flags.IsEnabled(ZeroFlag)
+	return cpu.loopOnCondition(zf)
+}
+
+func (cpu *CPU) loopne() error {
+	zf := cpu.Flags.IsEnabled(ZeroFlag)
+	return cpu.loopOnCondition(!zf)
+}
+
+// Returns
+
+func (cpu *CPU) retNear(bytesToPop uint) error {
+	cpu.Ip = cpu.Regs.Pop16(cpu.Mem)
+	if bytesToPop > 0 {
+		cpu.Regs.Inc16(SP, bytesToPop)
+	}
+	return nil
+}
+
+func (cpu *CPU) retFar(bytesToPop uint) error {
+	cpu.Ip = cpu.Regs.Pop16(cpu.Mem)
+	cs := cpu.Regs.Pop16(cpu.Mem)
+	cpu.Regs.SetSeg16(CS, uint(cs))
+	if bytesToPop > 0 {
+		cpu.Regs.Inc16(SP, bytesToPop)
+	}
+	return nil
+}

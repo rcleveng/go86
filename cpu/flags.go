@@ -99,12 +99,36 @@ func (f *Flags) String() string {
 	return sb.String()
 }
 
+// Returns a string in the canonical CodeView format for the flags.  The
+// format is upper case letters for a flag being on, lower case otherwise.
+// See https://www.csee.umbc.edu/courses/undergraduate/CMSC211/fall01/burt/tech_help/flags.html
+// Example: "OV UP DI NG NZ NA PO NC"
+func (f *Flags) ToCodeViewDebugString() string {
+	var sb strings.Builder
+	f.WriteFlag(&sb, OF, "OV", "NV")
+	f.WriteFlag(&sb, DF, "DN", "UP")
+	f.WriteFlag(&sb, IF, "EI", "DI")
+	f.WriteFlag(&sb, SF, "NG", "PL")
+	f.WriteFlag(&sb, ZF, "ZR", "NZ")
+	f.WriteFlag(&sb, AF, "AC", "NA")
+	f.WriteFlag(&sb, PF, "PE", "PO")
+	f.WriteFlag(&sb, CF, "CY", "NC")
+	return sb.String()
+}
+
 // Update the Zero, Sign, and Parity flags where result is the result of an
 // instruction execution and numbits is either 8 or 16 depending on the
 // instruction.
-func (f *Flags) SetFlagsZSP(result uint) {
+func (f *Flags) SetFlagsZSP(result uint, bit int) {
 	f.SetFlagIf(ZF, result == 0)
-	f.SetFlagIf(SF, (result&0x80) != 0)
+	switch bit {
+	case 8:
+		f.SetFlagIf(SF, (result&0x80) != 0)
+	case 16:
+		f.SetFlagIf(SF, (result&0x8000) != 0)
+	default:
+		panic("wrong number of bits")
+	}
 	// Yes. X86 only ever uses LSB for PF
 	count := bits.OnesCount8(uint8(result))
 	f.SetFlagIf(PF, count%2 == 0)
@@ -125,7 +149,7 @@ func (f *Flags) SetFlagsAdd(res, src, dst uint, bits int) {
 	f.SetFlagIf(CF, res>>bits != 0)
 	f.SetFlagIf(OF, (res^src)&(res^dst)&signMask != 0)
 	f.SetFlagIf(AF, (res^src^dst)&0x10 != 0)
-	f.SetFlagsZSP(res)
+	f.SetFlagsZSP(res, bits)
 }
 
 // SetFlagsAdd16 sets the flags for a 16-bit addition
@@ -163,7 +187,7 @@ func (f *Flags) SetFlagsSub(res, src, dst uint, bits int) {
 	f.SetFlagIf(CF, res&carryMask == carryMask)
 	f.SetFlagIf(OF, ((dst^src)&(res^dst)&overflowMask) != 0)
 	f.SetFlagIf(AF, (res^src^dst)&0x10 != 0)
-	f.SetFlagsZSP(res)
+	f.SetFlagsZSP(res, bits)
 }
 
 // Helper function, used in CMP, where just PSZ survives

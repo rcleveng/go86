@@ -147,11 +147,11 @@ func (r *Registers) SetSeg16(sreg SReg, val uint) {
 // Increment/Decrement
 
 func (r *Registers) Inc16(reg Reg, num uint) {
-	r.regs[reg] = r.regs[reg] + num
+	r.regs[reg] = (r.regs[reg] + num) & 0xffff
 }
 
 func (r *Registers) Dec16(reg Reg, num uint) {
-	r.regs[reg] = r.regs[reg] - num
+	r.regs[reg] = (r.regs[reg] - num) & 0xffff
 }
 
 // Push an value onto the stack
@@ -168,7 +168,7 @@ func (r *Registers) Pop16(mem *Memory) uint16 {
 	seg := r.sregs[SS]
 	off := r.regs[SP]
 	v := mem.GetMem16(seg, off)
-	r.regs[SP] = r.regs[SP] + 2
+	r.regs[SP] = (r.regs[SP] + 2) & 0xffff
 	log.V(1).Infof("   POP:%04X [%04X:%04X]", r, seg, off)
 	return v
 }

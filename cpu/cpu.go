@@ -57,6 +57,11 @@ func (cpu *CPU) Run() {
 	}
 }
 
+func (cpu *CPU) Halt() {
+	log.Warningln("HLT instruction executed")
+	cpu.Running = false
+}
+
 func (cpu *CPU) HandleGrpOne(left, right Operand) error {
 	if err := cpu.FetchModRM(); err != nil {
 		return err
@@ -292,6 +297,20 @@ func (cpu *CPU) RunOnce() error {
 	case 0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F:
 		cpu.Regs.PopReg16(Reg(inst.OpCode-0x58), cpu.Mem)
 
+	case 0x68:
+		imm16, err := cpu.Fetch16()
+		if err != nil {
+			return err
+		}
+		cpu.Regs.Push16(cpu.Mem, imm16)
+		return nil
+	case 0x6A:
+		imm8, err := cpu.Fetch8()
+		if err != nil {
+			return err
+		}
+		cpu.Regs.Push16(cpu.Mem, uint16(imm8))
+		return nil
 	// Jumps
 	case 0x70:
 		return cpu.jo8()
@@ -414,6 +433,21 @@ func (cpu *CPU) RunOnce() error {
 	case 0xA3:
 		return cpu.mov(Ov, RegAX)
 
+	case 0xA6:
+		return cpu.cmps(8)
+	case 0xA7:
+		return cpu.cmps(16)
+
+	case 0xA8:
+		return cpu.test(RegAL, Ib)
+	case 0xA9:
+		return cpu.test(RegAX, Iv)
+
+	case 0xAE:
+		return cpu.scas(cpu.Inst, 8)
+	case 0xAF:
+		return cpu.scas(cpu.Inst, 16)
+
 	// Move to register from immediate value
 	case 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7:
 		return cpu.movRegIb(Reg8(inst.OpCode - 0xB0))
@@ -424,6 +458,14 @@ func (cpu *CPU) RunOnce() error {
 		return cpu.HandleGrpTwo(Eb, Ib)
 	case 0xC1: // GRP2
 		return cpu.HandleGrpTwo(Ev, Ib)
+	case 0xC2:
+		imm16, err := cpu.Fetch16()
+		if err != nil {
+			return err
+		}
+		return cpu.retNear(uint(imm16))
+	case 0xC3:
+		return cpu.retNear(0)
 	case 0xC6:
 		if err := cpu.FetchModRM(); err != nil {
 			return err
@@ -440,6 +482,14 @@ func (cpu *CPU) RunOnce() error {
 			return fmt.Errorf("unexpected reg value for opcode 0xC6: '%x'", cpu.ModRM.Reg)
 		}
 		return cpu.mov(Ev, Iv)
+	case 0xCA:
+		imm16, err := cpu.Fetch16()
+		if err != nil {
+			return err
+		}
+		return cpu.retFar(uint(imm16))
+	case 0xCB:
+		return cpu.retFar(0)
 
 	case 0xD0: // GRP2
 		return cpu.HandleGrpTwo(Eb, ValOne)
@@ -450,6 +500,16 @@ func (cpu *CPU) RunOnce() error {
 	case 0xD3: // GRP2
 		return cpu.HandleGrpTwo(Ev, RegCL)
 
+		// LOOP
+	case 0xE0:
+		return cpu.loopne()
+	case 0xE1:
+		return cpu.loope()
+	case 0xE2:
+		return cpu.loop()
+
+	case 0xE8:
+		return cpu.callNear()
 	// JMP
 	case 0xE3:
 		return cpu.jcxz()
@@ -465,7 +525,14 @@ func (cpu *CPU) RunOnce() error {
 	case 0xF7: // GRP3
 		return cpu.HandleGrpThree(Ev, Iv)
 
-	// CLI - Clear Interrupt Flag
+	case 0xF8: // CLC
+		cpu.Flags.ClearFlag(CarryFlag)
+		return nil
+	case 0xF9: // STC
+		cpu.Flags.SetFlags(CarryFlag)
+		return nil
+
+		// CLI - Clear Interrupt Flag
 	case 0xFA:
 		cpu.Flags.ClearFlag(IF)
 		return nil
@@ -473,6 +540,13 @@ func (cpu *CPU) RunOnce() error {
 	// STI - Set Interrupt Flag
 	case 0xFB:
 		cpu.Flags.SetFlags(IF)
+		return nil
+
+	case 0xFC: // CLD
+		cpu.Flags.ClearFlag(DirectionFlag)
+		return nil
+	case 0xFD: // STD
+		cpu.Flags.SetFlags(DirectionFlag)
 		return nil
 
 	case 0xFE:

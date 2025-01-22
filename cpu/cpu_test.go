@@ -48,6 +48,10 @@ func checkFlags(t *testing.T, cpu *CPU, want_flags string) {
 			assert.Assert(t, cpu.Flags.IsEnabled(CF))
 		case 'c':
 			assert.Assert(t, !cpu.Flags.IsEnabled(CF))
+		case 'D':
+			assert.Assert(t, cpu.Flags.IsEnabled(DF))
+		case 'd':
+			assert.Assert(t, !cpu.Flags.IsEnabled(DF))
 		case 'I':
 			assert.Assert(t, cpu.Flags.IsEnabled(IF))
 		case 'i':
@@ -68,6 +72,9 @@ func checkFlags(t *testing.T, cpu *CPU, want_flags string) {
 			assert.Assert(t, cpu.Flags.IsEnabled(ZF))
 		case 'z':
 			assert.Assert(t, !cpu.Flags.IsEnabled(ZF))
+		default:
+			t.Logf("unknown want_flag value: '%c'; decimal: '%d'", c, c)
+			t.FailNow()
 		}
 	}
 }
@@ -190,7 +197,7 @@ func TestCPU(t *testing.T) {
 		{"LOOPNE/CX0", "E007", []h{regval16{CX, 20}, flagval{ZF, true}}, []w{ipval{2}}, ""},
 
 		// ADD
-		{"ADD0x00", "00C2", []h{regval8{AL, 3}, regval8{DL, 2}}, []w{regval8{DL, 5}}, "Paczsfo"},
+		{"ADD0x00", "00C2", []h{regval8{AL, 3}, regval8{DL, 2}}, []w{regval8{DL, 5}}, "Paczso"},
 		{"ADD0x00/AF", "00C2", []h{regval8{AL, 0x0F}, regval16{DX, 0x01}}, []w{regval8{DL, 0x10}}, "Acozsp"},
 		{"ADD0x00/CFSF", "00C2", []h{regval16{AX, 0x7F}, regval16{DX, 0x01}}, []w{regval8{DL, 0x80}}, "zSOpcA"},
 		{"ADD0x01", "01C0", []h{regval16{AX, 0x10}}, []w{regval16{AX, 0x20}}, "zsoc"},
@@ -216,8 +223,8 @@ func TestCPU(t *testing.T) {
 		{"SUB/rmm8/r8", "28C3", []h{regval8{AL, 5}, regval8{BL, 8}}, []w{regval8{BL, 0x03}}, ""},
 		{"SUB/rmm16/r16", "29C3", []h{regval16{AX, 5}, regval16{BX, 8}}, []w{regval16{BX, 0x03}}, ""},
 
-		{"SUB/r8/rmm8", "2AC3", []h{regval8{AL, 0xFE}, regval8{BL, 0x7F}}, []w{regval8{AL, 0x7F}}, "sO"},
-		{"SUB/r16/rmm16", "2BC3", []h{regval16{AX, 0xFFFE}, regval16{BX, 0xFF7F}}, []w{regval16{AX, 0x007F}}, "s0"},
+		{"SUB/r8/rmm8", "2AC3", []h{regval8{AL, 0xFE}, regval8{BL, 0x7F}}, []w{regval8{AL, 0x7F}}, "so"},
+		{"SUB/r16/rmm16", "2BC3", []h{regval16{AX, 0xFFFE}, regval16{BX, 0xFF7F}}, []w{regval16{AX, 0x007F}}, "so"},
 
 		// MOV
 
@@ -317,7 +324,7 @@ func TestCPU(t *testing.T) {
 				memval8{0x2000, 0x100, 0x11},
 				memval8{0x2000, 0x101, 0x21},
 			},
-			[]w{regval16{DI, 0x0101}}, ""},
+			[]w{regval16{DI, 0x0102}}, ""},
 		{"SCASB/NE", "AE",
 			[]h{sregval{ES, 0x2000},
 				regval16{DI, 0x0100},
@@ -403,7 +410,7 @@ func TestCPU(t *testing.T) {
 			[]w{}, "ZPs"},
 		{"TEST/AX/IMM16/S", "A90180",
 			[]h{regval16{AX, 0x8000}},
-			[]w{}, "zS"},
+			[]w{}, "zSP"},
 
 		{"CWD/POS", "99",
 			[]h{regval16{AX, 0x8000}},
@@ -469,7 +476,9 @@ func TestCPU(t *testing.T) {
 				case regval8:
 					assert.Equal(t, r.val, cpu.Regs.GetReg8(r.reg), r.reg)
 				case regval16:
-					assert.Equal(t, r.val, cpu.Regs.GetReg16(r.reg), r.reg)
+					h := cpu.Regs.GetReg16(r.reg)
+					assert.Equal(t, r.val, h,
+						fmt.Sprintf("want: %#v; have: %#v", r.val, h))
 				case sregval:
 					assert.Equal(t, r.val, cpu.Regs.GetSeg16(r.reg), r.reg)
 				case memval8:

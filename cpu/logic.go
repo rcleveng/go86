@@ -11,7 +11,7 @@ func (cpu *CPU) or(leftop, rightop Operand) error {
 	result := left | right
 
 	leftop.SetByOperand(cpu, result)
-	cpu.Flags.SetFlagsZSP(result)
+	cpu.Flags.SetFlagsZSP(result, leftop.Bits())
 	cpu.Flags.ClearFlagsCO()
 
 	return nil
@@ -28,7 +28,7 @@ func (cpu *CPU) and(leftop, rightop Operand) error {
 	result := left & right
 
 	leftop.SetByOperand(cpu, result)
-	cpu.Flags.SetFlagsZSP(result)
+	cpu.Flags.SetFlagsZSP(result, leftop.Bits())
 	cpu.Flags.ClearFlagsCO()
 
 	return nil
@@ -45,9 +45,15 @@ func (cpu *CPU) xor(leftop, rightop Operand) error {
 	result := left ^ right
 
 	leftop.SetByOperand(cpu, result)
-	cpu.Flags.SetFlagsZSP(result)
+	cpu.Flags.SetFlagsZSP(result, leftop.Bits())
 	cpu.Flags.ClearFlagsCO()
 
+	return nil
+}
+
+func (cpu *CPU) compare(left, right uint, bit int) error {
+	diff := left - right
+	cpu.Flags.SetFlagsSub(diff, left, right, bit)
 	return nil
 }
 
@@ -69,8 +75,9 @@ func (cpu *CPU) test(leftop, rightop Operand) error {
 	if err != nil {
 		return err
 	}
+	dest := left & right
 	cpu.Flags.ClearFlagsCO()
-	cpu.Flags.SetFlagsZSP(left & right)
+	cpu.Flags.SetFlagsZSP(dest, leftop.Bits())
 	return nil
 }
 

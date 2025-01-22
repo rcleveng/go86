@@ -43,7 +43,7 @@ func (cpu *CPU) shr(leftop, rightop Operand) error {
 	result := left >> right
 
 	leftop.SetByOperand(cpu, result)
-	cpu.Flags.SetFlagsZSP(result)
+	cpu.Flags.SetFlagsZSP(result, leftop.Bits())
 	cpu.Flags.SetFlagIf(CarryFlag, cf)
 
 	return nil
@@ -72,7 +72,7 @@ func (cpu *CPU) sar(leftop, rightop Operand) error {
 	}
 
 	leftop.SetByOperand(cpu, result)
-	cpu.Flags.SetFlagsZSP(result)
+	cpu.Flags.SetFlagsZSP(result, leftop.Bits())
 	cpu.Flags.SetFlagIf(CarryFlag, cf)
 
 	return nil
@@ -89,7 +89,7 @@ func (cpu *CPU) shl(leftop, rightop Operand) error {
 	result := left << right
 
 	leftop.SetByOperand(cpu, result)
-	cpu.Flags.SetFlagsZSP(result)
+	cpu.Flags.SetFlagsZSP(result, leftop.Bits())
 	cpu.Flags.SetFlagIf(CarryFlag, cf)
 
 	return nil
