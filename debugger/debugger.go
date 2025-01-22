@@ -23,7 +23,7 @@ type Breakpoint struct {
 }
 
 func (b Breakpoint) ShouldBreak(c *cpu.CPU) bool {
-	cs := c.Sregs[cpu.SREG_CS]
+	cs := uint16(c.Regs.CS())
 	if cs == b.seg && b.off == c.Ip {
 		log.V(1).Infof("Breaking at: [%04X:%04X]", cs, c.Ip)
 		return true
@@ -59,8 +59,8 @@ type DebugReponseType int
 
 // Information about the memory block requested by the debugger
 type DebuggerMemoryRequest struct {
-	Seg    int
-	Off    int
+	Seg    uint
+	Off    uint
 	Length int
 }
 
@@ -84,7 +84,7 @@ type DebuggerResponse struct {
 
 	// CPU State
 	Ip    uint16
-	Flags uint16
+	Flags uint32
 
 	// returned memory,  the first position of the slice is the start of the range requested.
 	Mem []byte
@@ -157,11 +157,13 @@ func (d *DebuggerBackend) ShouldBreak() bool {
 
 func CpuString(c *cpu.CPU) string {
 	l1 := fmt.Sprintf("AX=%04X BX=%04X CX=%04X DX=%04X SP=%04X BP=%04X SI=%04X DI=%04X",
-		c.Regs[cpu.REG_AX], c.Regs[cpu.REG_BX], c.Regs[cpu.REG_CX], c.Regs[cpu.REG_DX],
-		c.Regs[cpu.REG_SP], c.Regs[cpu.REG_BP], c.Regs[cpu.REG_SI], c.Regs[cpu.REG_DI])
+		c.Regs.GetReg16(cpu.AX), c.Regs.GetReg16(cpu.BX),
+		c.Regs.GetReg16(cpu.CX), c.Regs.GetReg16(cpu.DX),
+		c.Regs.GetReg16(cpu.SP), c.Regs.GetReg16(cpu.BP),
+		c.Regs.GetReg16(cpu.SI), c.Regs.GetReg16(cpu.DI))
 	l2 := fmt.Sprintf("DS=%04X ES=%04X SS=%04X CS=%04X IP=%04X %s",
-		c.Sregs[cpu.SREG_DS], c.Sregs[cpu.SREG_ES],
-		c.Sregs[cpu.SREG_SS], c.Sregs[cpu.SREG_CS], c.Ip, c.FlagsToDebugString())
+		c.Regs.DS(), c.Regs.ES(),
+		c.Regs.SS(), c.Regs.CS(), c.Ip, c.Flags.ToCodeViewDebugString())
 
 	return fmt.Sprintf("%s\n%s\n", l1, l2)
 }
@@ -170,16 +172,16 @@ func CpuString(c *cpu.CPU) string {
 // Example: 0E06:004E BE0010            MOV     SI,1000
 func DisasmString(c *cpu.CPU) string {
 	prefix := ""
-	if c.Inst.Prefix[0] != 0 {
-		prefix = fmt.Sprintf("[%v]", c.Inst.Prefix[0])
-	}
-	disam := c.Mem.At(int(c.Sregs[cpu.SREG_CS]), int(c.Ip))[:c.Inst.Len]
+	//	if c.Inst.Prefix[0] != 0 {
+	//	prefix = fmt.Sprintf("[%v]", c.Inst.Prefix[0])
+	//}
+	disam := c.Mem.At(c.Regs.CS(), uint(c.Ip))[:c.Inst.Len]
 	return fmt.Sprintf("%04X:%04X %-18s %s%s\n",
-		c.Sregs[cpu.SREG_CS], c.Ip, hex.EncodeToString(disam), prefix, c.Inst)
+		c.Regs.CS(), c.Ip, hex.EncodeToString(disam), prefix, c.Inst)
 }
 
 func (d *DebuggerBackend) Step() bool {
-	log.V(1).Infof("[%04X:%04X] Step", d.cpu.Sregs[cpu.SREG_CS], d.cpu.Ip)
+	log.V(1).Infof("[%04X:%04X] Step", d.cpu.Regs.CS(), d.cpu.Ip)
 	// Handle any debugger requests first
 	if !d.ShouldBreak() {
 		return true
@@ -189,7 +191,7 @@ func (d *DebuggerBackend) Step() bool {
 	resp := DebuggerResponse{}
 	resp.Cmd = STEP
 	resp.Ip = d.cpu.Ip
-	resp.Flags = d.cpu.Flags
+	resp.Flags = d.cpu.Flags.Value()
 	resp.Text = DisasmString(d.cpu)
 	d.response <- resp
 
@@ -199,7 +201,7 @@ func (d *DebuggerBackend) Step() bool {
 		resp.Cmd = r.Cmd
 		resp.RawCmdText = r.RawCmdText
 		resp.Ip = d.cpu.Ip
-		resp.Flags = d.cpu.Flags
+		resp.Flags = d.cpu.Flags.Value()
 		switch r.Cmd {
 		case CONTINUE:
 			d.mode = RUNNING
@@ -232,19 +234,19 @@ func (d *DebuggerBackend) Step() bool {
 			resp.Signal = 5
 			d.response <- resp
 		case INFO:
-			resp.AX = d.cpu.Regs[cpu.REG_AX]
-			resp.BX = d.cpu.Regs[cpu.REG_BX]
-			resp.CX = d.cpu.Regs[cpu.REG_CX]
-			resp.DX = d.cpu.Regs[cpu.REG_DX]
-			resp.SP = d.cpu.Regs[cpu.REG_SP]
-			resp.BP = d.cpu.Regs[cpu.REG_BP]
-			resp.SI = d.cpu.Regs[cpu.REG_SI]
-			resp.DI = d.cpu.Regs[cpu.REG_DI]
+			resp.AX = uint16(d.cpu.Regs.GetReg16(cpu.AX))
+			resp.BX = uint16(d.cpu.Regs.GetReg16(cpu.BX))
+			resp.CX = uint16(d.cpu.Regs.GetReg16(cpu.CX))
+			resp.DX = uint16(d.cpu.Regs.GetReg16(cpu.DX))
+			resp.SP = uint16(d.cpu.Regs.GetReg16(cpu.SP))
+			resp.BP = uint16(d.cpu.Regs.GetReg16(cpu.BP))
+			resp.SI = uint16(d.cpu.Regs.GetReg16(cpu.SI))
+			resp.DI = uint16(d.cpu.Regs.GetReg16(cpu.DI))
 
-			resp.CS = d.cpu.Sregs[cpu.SREG_CS]
-			resp.DS = d.cpu.Sregs[cpu.SREG_DS]
-			resp.ES = d.cpu.Sregs[cpu.SREG_ES]
-			resp.SS = d.cpu.Sregs[cpu.SREG_SS]
+			resp.CS = uint16(d.cpu.Regs.CS())
+			resp.DS = uint16(d.cpu.Regs.DS())
+			resp.ES = uint16(d.cpu.Regs.ES())
+			resp.SS = uint16(d.cpu.Regs.SS())
 
 			resp.Text = CpuString(d.cpu)
 			resp.ThreadId = 0

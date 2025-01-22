@@ -60,7 +60,7 @@ func (s LameSession) HandleRequests(request chan DebuggerRequest) {
 				log.Warningf("Invalid Memory command [len]. Expected Mem Seg Off Len: %v ", err)
 				continue
 			}
-			m := DebuggerMemoryRequest{Seg: int(seg), Off: int(off), Length: int(length)}
+			m := DebuggerMemoryRequest{Seg: uint(seg), Off: uint(off), Length: int(length)}
 			request <- DebuggerRequest{Cmd: MEMORY, Data: data, Mem: m}
 		case 'Q':
 			request <- DebuggerRequest{Cmd: HALT, Data: data}

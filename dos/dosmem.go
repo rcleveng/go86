@@ -10,12 +10,12 @@ import (
 // or assign as-is, or is currently owned by a PSP
 type DosMemBlock struct {
 	Avail bool
-	Start int
+	Start uint
 	// Use golang convention that end == last element +1
-	End int
+	End uint
 	// The Segment of the PSP of the owning process. This number is also
 	// referred to as the DOS PID
-	Owner       int
+	Owner       uint
 	ProgramName string
 }
 
@@ -36,18 +36,18 @@ const (
 const allowedSlackSpace = 512 // 512 * 16 == 8k
 
 type DosMem struct {
-	StartSeg int
-	EndSeg   int
+	StartSeg uint
+	EndSeg   uint
 	Fit      FitStrategy
 	Blocks   []DosMemBlock
 }
 
-func NewDosMem(start int, end int) *DosMem {
+func NewDosMem(start uint, end uint) *DosMem {
 	d := &DosMem{StartSeg: start, EndSeg: end}
 	return d
 }
 
-func (m DosMemBlock) Size() int {
+func (m DosMemBlock) Size() uint {
 	return m.End - m.Start
 }
 
@@ -60,7 +60,7 @@ func (m DosMem) String() string {
 	return s.String()
 }
 
-func (m *DosMem) FindBlock(start int) (blockNum int, found bool) {
+func (m *DosMem) FindBlock(start uint) (blockNum int, found bool) {
 	for i, b := range m.Blocks {
 		if b.Start == start {
 			return i, true
@@ -70,7 +70,7 @@ func (m *DosMem) FindBlock(start int) (blockNum int, found bool) {
 }
 
 // Resizes an existing allocated block.
-func (m *DosMem) Resize(start int, needed int) (int, error) {
+func (m *DosMem) Resize(start uint, needed uint) (uint, error) {
 	startBlock, found := m.FindBlock(start)
 	if !found {
 		return 0, errors.New("not found")
@@ -119,7 +119,7 @@ func (m *DosMem) Resize(start int, needed int) (int, error) {
 	return newSize, nil
 }
 
-func (m *DosMem) AllocateFirst(size int) (*DosMemBlock, error) {
+func (m *DosMem) AllocateFirst(size uint) (*DosMemBlock, error) {
 	for i := 0; i < len(m.Blocks); i++ {
 		if !m.Blocks[i].Avail {
 			continue
@@ -150,7 +150,7 @@ func (m *DosMem) AllocateFirst(size int) (*DosMemBlock, error) {
 	return nil, fmt.Errorf("unable to allocate memory of size: %d", size)
 }
 
-func (m *DosMem) AllocateLast(size int) (*DosMemBlock, error) {
+func (m *DosMem) AllocateLast(size uint) (*DosMemBlock, error) {
 	for i := len(m.Blocks) - 1; i >= 0; i-- {
 		if !m.Blocks[i].Avail {
 			continue
@@ -178,7 +178,7 @@ func (m *DosMem) AllocateLast(size int) (*DosMemBlock, error) {
 	return nil, errors.New("unable to allocate memory")
 }
 
-func (m *DosMem) Allocate(size int) (*DosMemBlock, error) {
+func (m *DosMem) Allocate(size uint) (*DosMemBlock, error) {
 	if len(m.Blocks) == 0 {
 		m.Blocks = append(m.Blocks, DosMemBlock{
 			Avail: true,

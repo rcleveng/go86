@@ -53,10 +53,10 @@ type Executable struct {
 
 // How many segments are needed to load this executable.  For EXEs we look
 // at the header, for COM files it's just 64k
-func (exe *Executable) SegmentsNeeded() int {
+func (exe *Executable) SegmentsNeeded() uint {
 	switch exe.Etype {
 	case EXE:
-		return int((exe.Hdr.BlocksInFile/32)+exe.Hdr.MinExtraParagraphs) + 1
+		return uint((exe.Hdr.BlocksInFile/32)+exe.Hdr.MinExtraParagraphs) + 1
 	case COM, IMAGE:
 		return 0x1000 // 64K
 	default:
