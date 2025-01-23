@@ -43,6 +43,23 @@ func (cpu *CPU) leaGvM() error {
 	return nil
 }
 
+func (cpu *CPU) lesLds(esds SReg) error {
+	if err := cpu.FetchModRM(); err != nil {
+		return err
+	}
+
+	seg, off, err := cpu.ModRM.GetMemoryLocation(cpu)
+	if err != nil {
+		return err
+	}
+
+	newoff := cpu.Mem.GetMem16(seg, off)
+	newseg := cpu.Mem.GetMem16(seg, off+2)
+	cpu.Regs.SetSeg16(esds, uint(newseg))
+	cpu.ModRM.SetR16(cpu, uint(newoff))
+	return nil
+}
+
 // popEv - Pop
 func (cpu *CPU) popEv() error {
 	if err := cpu.FetchModRM(); err != nil {
@@ -73,3 +90,18 @@ func (cpu *CPU) movRegIv(reg Reg) error {
 	cpu.Regs.SetReg16(reg, uint(value))
 	return nil
 }
+
+// generate LEA
+/* func (cpu *CPU) lea() error {
+	if err := cpu.FetchModRM(); err != nil {
+		return err
+	}
+	// ignore seg?
+	_, off, err := cpu.ModRM.GetMemoryLocation(cpu)
+	if err != nil {
+		return err
+	}
+	cpu.ModRM.SetR16(cpu, off)
+	return nil
+}
+*/

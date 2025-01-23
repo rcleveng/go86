@@ -131,6 +131,11 @@ type ipval struct {
 	val uint
 }
 
+type interruptval struct {
+	val int
+	f   func(*CPU, int)
+}
+
 // a memory address with value for want/have
 // type memslice struct {
 // 	seg, off int
@@ -266,7 +271,9 @@ func TestCPU(t *testing.T) {
 			[]w{regval16{CX, 0x21BE}}, ""},
 
 		// CD21 Call Interrupt 21
-		{"CD/21", "CD21", []h{}, []w{}, ""},
+		{"CD/21", "CD21", []h{interruptval{0x21, func(c *CPU, i int) {
+			c.Mem.SetMem16(0x0000, 0xcafe, 0xbeef)
+		}}}, []w{memval16{0x0000, 0xcafe, 0xbeef}}, ""},
 
 		// LEA: 8D160A00: LEA DX,[0x0A]
 		{"LEA/21", "8D160A00", []h{}, []w{regval16{DX, 0x000A}}, ""},
@@ -350,7 +357,7 @@ func TestCPU(t *testing.T) {
 		{"POP/RMM/AX", "8FC0", []h{pushval16{0x2021}}, []w{regval16{AX, 0x2021}}, ""},
 		{"LES", "C43E7500", []h{memval16{DEFAULT_DS, 0x0075, 0x2021}, memval16{DEFAULT_DS, 0x0077, DEFAULT_DS}},
 			[]w{regval16{DI, 0x2021}, sregval{ES, DEFAULT_DS}}, ""},
-		{"LDDS", "C53E7500", []h{memval16{DEFAULT_DS, 0x0075, 0x2021}, memval16{DEFAULT_DS, 0x0077, 0x2000}},
+		{"LDS", "C53E7500", []h{memval16{DEFAULT_DS, 0x0075, 0x2021}, memval16{DEFAULT_DS, 0x0077, 0x2000}},
 			[]w{regval16{DI, 0x2021}, sregval{DS, 0x2000}}, ""},
 		{"CLD", "FC", []h{flagval{DF, true}}, []w{}, "d"},
 		{"STD", "FD", []h{flagval{DF, false}}, []w{}, "D"},
@@ -465,6 +472,8 @@ func TestCPU(t *testing.T) {
 					cpu.Mem.SetMem16(r.seg, r.off, r.val)
 				case pushval16:
 					cpu.Regs.Push16(cpu.Mem, r.val)
+				case interruptval:
+					cpu.Intrs[r.val] = r.f
 				default:
 					t.Fatalf("Unknown have: %#v", r)
 				}

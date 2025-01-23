@@ -443,6 +443,15 @@ func (cpu *CPU) RunOnce() error {
 	case 0xA9:
 		return cpu.test(RegAX, Iv)
 
+	case 0xAA:
+		return cpu.stos(cpu.Inst, 8)
+	case 0xAB:
+		return cpu.stos(cpu.Inst, 16)
+	case 0xAC:
+		return cpu.lods(cpu.Inst, 8)
+	case 0xAD:
+		return cpu.lods(cpu.Inst, 16)
+
 	case 0xAE:
 		return cpu.scas(cpu.Inst, 8)
 	case 0xAF:
@@ -466,6 +475,12 @@ func (cpu *CPU) RunOnce() error {
 		return cpu.retNear(uint(imm16))
 	case 0xC3:
 		return cpu.retNear(0)
+
+	case 0xC4: // LES
+		return cpu.lesLds(ES)
+	case 0xC5: // LDS
+		return cpu.lesLds(DS)
+
 	case 0xC6:
 		if err := cpu.FetchModRM(); err != nil {
 			return err
@@ -490,6 +505,16 @@ func (cpu *CPU) RunOnce() error {
 		return cpu.retFar(uint(imm16))
 	case 0xCB:
 		return cpu.retFar(0)
+
+	case 0xCC:
+		return cpu.int(0x03)
+
+	case 0xCD:
+		imm8, err := cpu.Fetch8()
+		if err != nil {
+			return err
+		}
+		return cpu.int(int(imm8))
 
 	case 0xD0: // GRP2
 		return cpu.HandleGrpTwo(Eb, ValOne)

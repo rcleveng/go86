@@ -109,6 +109,8 @@ func NewDos(cpu *cpu.CPU) *Dos {
 }
 
 func (dos *Dos) createPsp(exe *Executable, seg_base *DosMemBlock, env_seg *DosMemBlock) {
+	log.V(1).Infof("Creating PSP at: 0x%04X\n", seg_base.Start)
+	log.V(4).Infof("Executable Type: %#v\n", exe.Etype)
 	start := seg_base.Start
 	dos.cpu.Mem.SetMem8(start, 0, 0xCD)
 	dos.cpu.Mem.SetMem8(start, 1, 0x20)

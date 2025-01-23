@@ -1,5 +1,11 @@
 package go86
 
+import (
+	"fmt"
+
+	log "github.com/golang/glog"
+)
+
 // JMP REL8
 func (cpu *CPU) jmprel8() error {
 	urel, err := cpu.Fetch8()
@@ -332,4 +338,24 @@ func (cpu *CPU) retFar(bytesToPop uint) error {
 		cpu.Regs.Inc16(SP, bytesToPop)
 	}
 	return nil
+}
+
+func (cpu *CPU) int(intrno int) error {
+	if cpu.Intrs[intrno] != nil {
+		log.V(4).Infof("Call Internal Interrupt # 0x%X", intrno)
+		cpu.Intrs[intrno](cpu, intrno)
+		return nil
+	} else {
+		// Call memory based x86 interrupt code
+		cpu.Regs.Push16(cpu.Mem, uint16(cpu.Flags.Value()))
+		cpu.Regs.PushSeg16(CS, cpu.Mem)
+		cpu.Regs.Push16(cpu.Mem, cpu.Ip)
+
+		// Update CS:IP from interrupt table
+		cpu.Ip = cpu.Mem.GetMem16(0x0000, uint(intrno*4))
+		cs := cpu.Mem.GetMem16(0x0000, 2+uint(intrno*4))
+		cpu.Regs.SetSeg16(CS, uint(cs))
+	}
+
+	return fmt.Errorf("INT %d: Implement me", intrno)
 }
