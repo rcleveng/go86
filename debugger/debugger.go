@@ -176,7 +176,7 @@ func DisasmString(c *cpu.CPU) string {
 	//	prefix = fmt.Sprintf("[%v]", c.Inst.Prefix[0])
 	//}
 	disam := c.Mem.At(c.Regs.CS(), uint(c.Ip))[:c.Inst.Len]
-	return fmt.Sprintf("%04X:%04X %-18s %s%s\n",
+	return fmt.Sprintf("%04X:%04X %-18s %s %#v\n",
 		c.Regs.CS(), c.Ip, hex.EncodeToString(disam), prefix, c.Inst)
 }
 

@@ -12,7 +12,7 @@ func TestDosMemSmoke(t *testing.T) {
 	b, err := m.Allocate(0x3200) // 200k in 16 byte pages
 	assert.NilError(t, err)
 	if b != nil {
-		assert.Equal(t, b.End-b.Start, 0x3200)
+		assert.Equal(t, b.End-b.Start, uint(0x3200))
 		fmt.Println(b)
 	} else {
 		t.Fatal("b should not be nil")
@@ -39,7 +39,7 @@ func TestDosMemLast(t *testing.T) {
 	b, err := m.Allocate(0x3200) // 200k in 16 byte pages
 	assert.NilError(t, err)
 	if b != nil {
-		assert.Equal(t, b.End-b.Start, 0x3200)
+		assert.Equal(t, b.End-b.Start, uint(0x3200))
 		fmt.Println(b)
 	} else {
 		t.Fatal("b should not be nil")
@@ -61,12 +61,12 @@ func TestDosMemRealloc(t *testing.T) {
 	if b == nil {
 		t.Fatal("b should not be nil")
 	}
-	assert.Equal(t, b.End-b.Start, 0x3200)
+	assert.Equal(t, b.End-b.Start, uint(0x3200))
 	fmt.Println(b)
 
 	newsize, err := m.Resize(b.Start, 0x6400) // 400k
 	assert.NilError(t, err)
-	assert.Equal(t, newsize, 0x6400)
+	assert.Equal(t, newsize, uint(0x6400))
 	assert.Equal(t, len(m.Blocks), 2)
 	fmt.Println(m)
 }
@@ -86,6 +86,6 @@ func TestDosMemReallocThree(t *testing.T) {
 	newsize, err := m.Resize(b.Start, 0x6400) // 400k
 	fmt.Println(m)
 	assert.NilError(t, err)
-	assert.Equal(t, newsize, 0x6400)
+	assert.Equal(t, newsize, uint(0x6400))
 	assert.Equal(t, len(m.Blocks), 2)
 }
