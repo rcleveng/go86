@@ -16,6 +16,11 @@ type ModRM struct {
 	// Base  uint8
 }
 
+func (m ModRM) String() string {
+	return fmt.Sprintf("ModRM{raw=0x%02X, Mod=%d, Reg=%d, Rm=%d, Disp8=%d, Disp16=%d}",
+		m.raw, m.Mod, m.Reg, m.Rm, m.Disp8, m.Disp16)
+}
+
 func NewModRM(r CpuInstructionReader, b uint8) (*ModRM, error) {
 	m := &ModRM{
 		raw: b,
@@ -44,13 +49,19 @@ func NewModRM(r CpuInstructionReader, b uint8) (*ModRM, error) {
 	return m, nil
 }
 
-func (m *ModRM) segmentToUse(cpu *CPU) uint {
+func (m *ModRM) segmentToUse(cpu *CPU, inst *Inst) uint {
+	if inst.HasSegmentOverride {
+		// TODO - do we need to make sure this instruction supports it?
+		return uint(inst.SegmentOverride)
+	}
+
 	if m.Rm == 2 || m.Rm == 3 {
 		// addressing modes that use the BP use SS
 		return cpu.Regs.SS()
 	}
 	return cpu.Regs.DS()
 }
+
 func (m *ModRM) effectiveAddressOffset8(cpu *CPU) uint {
 	if m.Mod == 3 {
 		// Only override this case
@@ -100,53 +111,53 @@ func (m *ModRM) effectiveAddressOffset16(cpu *CPU) uint {
 	panic("unknown mod value: " + string(m.Mod))
 }
 
-func (m *ModRM) GetRm8(cpu *CPU) uint {
+func (m *ModRM) GetRm8(cpu *CPU, inst *Inst) uint {
 	if m.Mod == 3 {
 		return cpu.Regs.GetReg8(Reg8(m.Rm))
 	}
 	offset := m.effectiveAddressOffset8(cpu)
-	seg := m.segmentToUse(cpu)
+	seg := m.segmentToUse(cpu, inst)
 	return uint(cpu.Mem.GetMem8(seg, offset))
 }
 
-func (m *ModRM) SetRm8(cpu *CPU, value uint) {
+func (m *ModRM) SetRm8(cpu *CPU, inst *Inst, value uint) {
 	if m.Mod == 3 {
 		// Can't use SetR16 since we want Rm to specify the register and not Reg
 		cpu.Regs.SetReg8(Reg8(m.Rm), value)
 		return
 	}
 	offset := m.effectiveAddressOffset8(cpu)
-	seg := m.segmentToUse(cpu)
+	seg := m.segmentToUse(cpu, inst)
 	cpu.Mem.SetMem8(seg, offset, uint8(value))
 }
 
-func (m *ModRM) GetRm16(cpu *CPU) uint {
+func (m *ModRM) GetRm16(cpu *CPU, inst *Inst) uint {
 	if m.Mod == 3 {
 		return cpu.Regs.GetReg16(Reg(m.Rm))
 	}
 	offset := m.effectiveAddressOffset16(cpu)
-	seg := m.segmentToUse(cpu)
+	seg := m.segmentToUse(cpu, inst)
 	return uint(cpu.Mem.GetMem16(seg, offset))
 }
 
 // Gets the memory location (segment:offset) to use to lookup indirect values
-func (m *ModRM) GetMemoryLocation(cpu *CPU) (seg uint, offset uint, err error) {
+func (m *ModRM) GetMemoryLocation(cpu *CPU, inst *Inst) (seg uint, offset uint, err error) {
 	if m.Mod == 3 {
 		return uint(CS), 0, fmt.Errorf("can't get memory location when mod == 3")
 	}
 	offset = m.effectiveAddressOffset16(cpu)
-	seg = m.segmentToUse(cpu)
+	seg = m.segmentToUse(cpu, inst)
 	return seg, offset, nil
 }
 
-func (m *ModRM) SetRm16(cpu *CPU, value uint) {
+func (m *ModRM) SetRm16(cpu *CPU, inst *Inst, value uint) {
 	if m.Mod == 3 {
 		// Can't use SetR16 since we want Rm to specify the register and not Reg
 		cpu.Regs.SetReg16(Reg(m.Rm), value)
 		return
 	}
 	offset := m.effectiveAddressOffset8(cpu)
-	seg := m.segmentToUse(cpu)
+	seg := m.segmentToUse(cpu, inst)
 	cpu.Mem.SetMem16(seg, offset, uint16(value))
 }
 

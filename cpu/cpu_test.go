@@ -158,7 +158,7 @@ func TestCPU(t *testing.T) {
 		{"CLI", "FA", []h{flagval{IF, true}}, []w{}, "i"},
 		{"STI", "FB", []h{flagval{IF, false}}, []w{}, "I"},
 
-		// XOR (abbreviated)
+		// XOR (abbreviated)F
 		{"XOR/Z", "3401", []h{regval8{AL, 0x1}}, []w{regval8{AL, 0x00}}, "Z"},
 		{"XOR/ALimm8", "3503", []h{regval8{AL, 0x1}}, []w{regval8{AL, 0x2}}, ""},
 		{"AND/AXimm16", "350300", []h{regval16{AX, 0x1}}, []w{regval16{AX, 0x2}}, ""},

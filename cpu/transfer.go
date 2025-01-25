@@ -7,8 +7,8 @@ import (
 )
 
 // JMP REL8
-func (cpu *CPU) jmprel8() error {
-	urel, err := cpu.Fetch8()
+func (cpu *CPU) jmprel8(inst *Inst) error {
+	urel, err := inst.Fetch8()
 	if err != nil {
 		return err
 	}
@@ -16,8 +16,8 @@ func (cpu *CPU) jmprel8() error {
 }
 
 // JMP REL16 (note, this can be a negative displacement)
-func (cpu *CPU) jmprel16() error {
-	urel, err := cpu.Fetch16()
+func (cpu *CPU) jmprel16(inst *Inst) error {
+	urel, err := inst.Fetch16()
 	if err != nil {
 		return err
 	}
@@ -26,12 +26,12 @@ func (cpu *CPU) jmprel16() error {
 
 // JMP far absolute (ptr16:16)
 // Example: 0000000E  EA45230000        jmp 0x0:0x2345
-func (cpu *CPU) jmpFarAbs() error {
-	offset, err := cpu.Fetch16()
+func (cpu *CPU) jmpFarAbs(inst *Inst) error {
+	offset, err := inst.Fetch16()
 	if err != nil {
 		return err
 	}
-	seg, err := cpu.Fetch16()
+	seg, err := inst.Fetch16()
 	if err != nil {
 		return err
 	}
@@ -40,24 +40,24 @@ func (cpu *CPU) jmpFarAbs() error {
 	return nil
 }
 
-func (cpu *CPU) jmpNearAbsIndirect() error {
+func (cpu *CPU) jmpNearAbsIndirect(inst *Inst) error {
 	// near is always 16 bits
-	offset := cpu.ModRM.GetRm16(cpu)
+	offset := inst.ModRM.GetRm16(cpu, inst)
 	cpu.Ip = uint16(offset)
 	return nil
 }
 
-func (cpu *CPU) callNearAbsIndirect() error {
+func (cpu *CPU) callNearAbsIndirect(inst *Inst) error {
 	// near is always 16 bits
-	offset := cpu.ModRM.GetRm16(cpu)
+	offset := inst.ModRM.GetRm16(cpu, inst)
 	cpu.Regs.PushSeg16(CS, cpu.Mem)
 	cpu.Regs.Push16(cpu.Mem, cpu.Ip)
 	cpu.Ip = uint16(offset)
 	return nil
 }
 
-func (cpu *CPU) jmpFarAbsIndirect() error {
-	segment, offset, err := cpu.ModRM.GetMemoryLocation(cpu)
+func (cpu *CPU) jmpFarAbsIndirect(inst *Inst) error {
+	segment, offset, err := inst.ModRM.GetMemoryLocation(cpu, inst)
 	if err != nil {
 		return err
 	}
@@ -70,8 +70,8 @@ func (cpu *CPU) jmpFarAbsIndirect() error {
 	return nil
 }
 
-func (cpu *CPU) callFarAbsIndirect() error {
-	segment, offset, err := cpu.ModRM.GetMemoryLocation(cpu)
+func (cpu *CPU) callFarAbsIndirect(inst *Inst) error {
+	segment, offset, err := inst.ModRM.GetMemoryLocation(cpu, inst)
 	if err != nil {
 		return err
 	}
@@ -106,8 +106,8 @@ func (cpu *CPU) jump16rel(rel int16) error {
 	return nil
 }
 
-func (cpu *CPU) jumpIfFlag8(flag uint32) error {
-	rel, err := cpu.Fetch8()
+func (cpu *CPU) jumpIfFlag8(inst *Inst, flag uint32) error {
+	rel, err := inst.Fetch8()
 	if err != nil {
 		return err
 	}
@@ -118,8 +118,8 @@ func (cpu *CPU) jumpIfFlag8(flag uint32) error {
 }
 
 // jumpIfNoFlag8 - jump if not flag
-func (cpu *CPU) jumpIfNoFlag8(flag uint32) error {
-	rel, err := cpu.Fetch8()
+func (cpu *CPU) jumpIfNoFlag8(inst *Inst, flag uint32) error {
+	rel, err := inst.Fetch8()
 	if err != nil {
 		return err
 	}
@@ -130,43 +130,43 @@ func (cpu *CPU) jumpIfNoFlag8(flag uint32) error {
 }
 
 // jo8 - jump if overflow
-func (cpu *CPU) jo8() error {
-	return cpu.jumpIfFlag8(OverflowFlag)
+func (cpu *CPU) jo8(inst *Inst) error {
+	return cpu.jumpIfFlag8(inst, OverflowFlag)
 }
 
 // jno8 - jump if not overflow
-func (cpu *CPU) jno8() error {
-	return cpu.jumpIfNoFlag8(OverflowFlag)
+func (cpu *CPU) jno8(inst *Inst) error {
+	return cpu.jumpIfNoFlag8(inst, OverflowFlag)
 }
 
 // jb8 - jump if below
-func (cpu *CPU) jb8() error {
-	return cpu.jumpIfFlag8(CarryFlag)
+func (cpu *CPU) jb8(inst *Inst) error {
+	return cpu.jumpIfFlag8(inst, CarryFlag)
 }
 
 // jnob8 - jump if not below
-func (cpu *CPU) jnb8() error {
-	return cpu.jumpIfNoFlag8(CarryFlag)
+func (cpu *CPU) jnb8(inst *Inst) error {
+	return cpu.jumpIfNoFlag8(inst, CarryFlag)
 }
 
 // jz8 - jump if zero
-func (cpu *CPU) jz8() error {
-	return cpu.jumpIfFlag8(ZeroFlag)
+func (cpu *CPU) jz8(inst *Inst) error {
+	return cpu.jumpIfFlag8(inst, ZeroFlag)
 }
 
 // jnz8 - jump if not zero
-func (cpu *CPU) jnz8() error {
-	return cpu.jumpIfNoFlag8(ZeroFlag)
+func (cpu *CPU) jnz8(inst *Inst) error {
+	return cpu.jumpIfNoFlag8(inst, ZeroFlag)
 }
 
 // jbe8 - jump if below or equal
-func (cpu *CPU) jbe8() error {
-	return cpu.jumpIfFlag8(CarryFlag | ZeroFlag)
+func (cpu *CPU) jbe8(inst *Inst) error {
+	return cpu.jumpIfFlag8(inst, CarryFlag|ZeroFlag)
 }
 
 // ja8 - jump if above
-func (cpu *CPU) ja8() error {
-	rel, err := cpu.Fetch8()
+func (cpu *CPU) ja8(inst *Inst) error {
+	rel, err := inst.Fetch8()
 	if err != nil {
 		return err
 	}
@@ -177,28 +177,28 @@ func (cpu *CPU) ja8() error {
 }
 
 // js8 - jump if sign
-func (cpu *CPU) js8() error {
-	return cpu.jumpIfFlag8(SignFlag)
+func (cpu *CPU) js8(inst *Inst) error {
+	return cpu.jumpIfFlag8(inst, SignFlag)
 }
 
 // jnos8 - jump if not sign
-func (cpu *CPU) jns8() error {
-	return cpu.jumpIfNoFlag8(SignFlag)
+func (cpu *CPU) jns8(inst *Inst) error {
+	return cpu.jumpIfNoFlag8(inst, SignFlag)
 }
 
 // jpe8 - jump if parity even
-func (cpu *CPU) jpe8() error {
-	return cpu.jumpIfFlag8(ParityFlag)
+func (cpu *CPU) jpe8(inst *Inst) error {
+	return cpu.jumpIfFlag8(inst, ParityFlag)
 }
 
 // jpo8 - jump if parity odd
-func (cpu *CPU) jpo8() error {
-	return cpu.jumpIfNoFlag8(ParityFlag)
+func (cpu *CPU) jpo8(inst *Inst) error {
+	return cpu.jumpIfNoFlag8(inst, ParityFlag)
 }
 
 // jl8 - jump if less
-func (cpu *CPU) jl8() error {
-	rel, err := cpu.Fetch8()
+func (cpu *CPU) jl8(inst *Inst) error {
+	rel, err := inst.Fetch8()
 	if err != nil {
 		return err
 	}
@@ -211,8 +211,8 @@ func (cpu *CPU) jl8() error {
 }
 
 // jle8 - jump if less or equal
-func (cpu *CPU) jle8() error {
-	rel, err := cpu.Fetch8()
+func (cpu *CPU) jle8(inst *Inst) error {
+	rel, err := inst.Fetch8()
 	if err != nil {
 		return err
 	}
@@ -226,8 +226,8 @@ func (cpu *CPU) jle8() error {
 }
 
 // jg8 - jump if greater
-func (cpu *CPU) jg8() error {
-	rel, err := cpu.Fetch8()
+func (cpu *CPU) jg8(inst *Inst) error {
+	rel, err := inst.Fetch8()
 	if err != nil {
 		return err
 	}
@@ -241,8 +241,8 @@ func (cpu *CPU) jg8() error {
 }
 
 // jge8 - jump if greater or equal
-func (cpu *CPU) jge8() error {
-	rel, err := cpu.Fetch8()
+func (cpu *CPU) jge8(inst *Inst) error {
+	rel, err := inst.Fetch8()
 	if err != nil {
 		return err
 	}
@@ -255,8 +255,8 @@ func (cpu *CPU) jge8() error {
 }
 
 // callNear
-func (cpu *CPU) callNear() error {
-	off, err := cpu.Fetch16()
+func (cpu *CPU) callNear(inst *Inst) error {
+	off, err := inst.Fetch16()
 	if err != nil {
 		return err
 	}
@@ -265,12 +265,12 @@ func (cpu *CPU) callNear() error {
 }
 
 // callFar - call far
-func (cpu *CPU) callFar() error {
-	off, err := cpu.Fetch16()
+func (cpu *CPU) callFar(inst *Inst) error {
+	off, err := inst.Fetch16()
 	if err != nil {
 		return err
 	}
-	seg, err := cpu.Fetch16()
+	seg, err := inst.Fetch16()
 	if err != nil {
 		return err
 	}
@@ -282,9 +282,9 @@ func (cpu *CPU) callFar() error {
 }
 
 // jcxz - jump if cx is zero
-func (cpu *CPU) jcxz() error {
+func (cpu *CPU) jcxz(inst *Inst) error {
 	// Need to fetch the next value before checking CX
-	urel, err := cpu.Fetch8()
+	urel, err := inst.Fetch8()
 	if err != nil {
 		return err
 	}
@@ -294,8 +294,8 @@ func (cpu *CPU) jcxz() error {
 	return nil
 }
 
-func (cpu *CPU) loopOnCondition(cond bool) error {
-	urel, err := cpu.Fetch8()
+func (cpu *CPU) loopOnCondition(inst *Inst, cond bool) error {
+	urel, err := inst.Fetch8()
 	if err != nil {
 		return err
 	}
@@ -306,18 +306,18 @@ func (cpu *CPU) loopOnCondition(cond bool) error {
 	return nil
 }
 
-func (cpu *CPU) loop() error {
-	return cpu.loopOnCondition(true)
+func (cpu *CPU) loop(inst *Inst) error {
+	return cpu.loopOnCondition(inst, true)
 }
 
-func (cpu *CPU) loope() error {
+func (cpu *CPU) loope(inst *Inst) error {
 	zf := cpu.Flags.IsEnabled(ZeroFlag)
-	return cpu.loopOnCondition(zf)
+	return cpu.loopOnCondition(inst, zf)
 }
 
-func (cpu *CPU) loopne() error {
+func (cpu *CPU) loopne(inst *Inst) error {
 	zf := cpu.Flags.IsEnabled(ZeroFlag)
-	return cpu.loopOnCondition(!zf)
+	return cpu.loopOnCondition(inst, !zf)
 }
 
 // Returns

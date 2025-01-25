@@ -1,6 +1,7 @@
 package go86
 
 import (
+	"fmt"
 	"math/bits"
 	"strings"
 )
@@ -114,6 +115,23 @@ func (f *Flags) ToCodeViewDebugString() string {
 	f.WriteFlag(&sb, PF, "PE", "PO")
 	f.WriteFlag(&sb, CF, "CY", "NC")
 	return sb.String()
+}
+
+func (f *Flags) DoxBoxDebugString() string {
+	// C0 Z0 S0 O0 A0 P0 D0 I1 T0
+	return fmt.Sprintf("C%s Z%s S%s O%s A%s P%s D%s I%s T%s",
+		f.flagToZeroOrOne(CF), f.flagToZeroOrOne(ZF),
+		f.flagToZeroOrOne(SF), f.flagToZeroOrOne(OF),
+		f.flagToZeroOrOne(AF), f.flagToZeroOrOne(PF),
+		f.flagToZeroOrOne(DF), f.flagToZeroOrOne(IF),
+		f.flagToZeroOrOne(TF))
+}
+
+func (f *Flags) flagToZeroOrOne(flag uint32) string {
+	if f.IsEnabled(flag) {
+		return "1"
+	}
+	return "0"
 }
 
 // Update the Zero, Sign, and Parity flags where result is the result of an

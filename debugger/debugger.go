@@ -155,19 +155,6 @@ func (d *DebuggerBackend) ShouldBreak() bool {
 	return d.interrupted
 }
 
-func CpuString(c *cpu.CPU) string {
-	l1 := fmt.Sprintf("AX=%04X BX=%04X CX=%04X DX=%04X SP=%04X BP=%04X SI=%04X DI=%04X",
-		c.Regs.GetReg16(cpu.AX), c.Regs.GetReg16(cpu.BX),
-		c.Regs.GetReg16(cpu.CX), c.Regs.GetReg16(cpu.DX),
-		c.Regs.GetReg16(cpu.SP), c.Regs.GetReg16(cpu.BP),
-		c.Regs.GetReg16(cpu.SI), c.Regs.GetReg16(cpu.DI))
-	l2 := fmt.Sprintf("DS=%04X ES=%04X SS=%04X CS=%04X IP=%04X %s",
-		c.Regs.DS(), c.Regs.ES(),
-		c.Regs.SS(), c.Regs.CS(), c.Ip, c.Flags.ToCodeViewDebugString())
-
-	return fmt.Sprintf("%s\n%s\n", l1, l2)
-}
-
 // Returns the next instruction as a disasmembled string
 // Example: 0E06:004E BE0010            MOV     SI,1000
 func DisasmString(c *cpu.CPU) string {
@@ -248,7 +235,7 @@ func (d *DebuggerBackend) Step() bool {
 			resp.ES = uint16(d.cpu.Regs.ES())
 			resp.SS = uint16(d.cpu.Regs.SS())
 
-			resp.Text = CpuString(d.cpu)
+			resp.Text = cpu.CpuString(d.cpu)
 			resp.ThreadId = 0
 			resp.Signal = 5
 			d.response <- resp

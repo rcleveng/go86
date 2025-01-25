@@ -63,41 +63,47 @@ var StandardOperands = []OperandPair{
 	AXIv,
 }
 
-func (op Operand) GetByOperand(cpu *CPU) (uint, error) {
+func (op Operand) GetByOperand(cpu *CPU, inst *Inst, mem *Memory, regs *Registers) (uint, error) {
 	switch op {
 	case Eb:
-		return cpu.ModRM.GetRm8(cpu), nil
+		return inst.ModRM.GetRm8(cpu, inst), nil
 	case Ev, Ew:
-		return cpu.ModRM.GetRm16(cpu), nil
+		return inst.ModRM.GetRm16(cpu, inst), nil
 	case Gb:
-		return cpu.ModRM.R8(cpu), nil
+		return inst.ModRM.R8(cpu), nil
 	case Gv:
-		return cpu.ModRM.R16(cpu), nil
+		return inst.ModRM.R16(cpu), nil
 	case Ib:
-		return cpu.Inst.GetImm8(cpu)
+		return inst.GetImm8(cpu)
 	case Iv:
-		return cpu.Inst.GetImm16(cpu)
+		return inst.GetImm16(cpu)
 	case Ob:
-		imm16, err := cpu.Inst.GetImm16(cpu)
+		imm16, err := inst.GetImm16(cpu)
 		if err != nil {
 			return 0, err
 		}
 
-		// TODO - handle segment overrides
-		value := uint(cpu.Mem.GetMem8(cpu.Regs.DS(), imm16))
+		seg := DS
+		if inst.HasSegmentOverride {
+			seg = inst.SegmentOverride
+		}
+		value := uint(cpu.Mem.GetMem8(uint(seg), imm16))
 		return value, nil
 
 	case Ov:
-		imm16, err := cpu.Inst.GetImm16(cpu)
+		imm16, err := inst.GetImm16(cpu)
 		if err != nil {
 			return 0, err
 		}
-		// TODO - handle segment overrides
-		value := uint(cpu.Mem.GetMem16(cpu.Regs.DS(), imm16))
+		seg := DS
+		if inst.HasSegmentOverride {
+			seg = inst.SegmentOverride
+		}
+		value := uint(cpu.Mem.GetMem16(uint(seg), imm16))
 		return value, nil
 
 	case Sw:
-		return cpu.Regs.GetSeg16(SReg(cpu.ModRM.Reg)), nil
+		return cpu.Regs.GetSeg16(SReg(inst.ModRM.Reg)), nil
 	case RegAL:
 		return cpu.Regs.GetReg8(AL), nil
 	case RegAX:
@@ -111,64 +117,73 @@ func (op Operand) GetByOperand(cpu *CPU) (uint, error) {
 	return 0, fmt.Errorf("GetByOperand: unknown operand: %v", op)
 }
 
-func (op Operand) SetByOperand(cpu *CPU, val uint) error {
+func (op Operand) SetByOperand(cpu *CPU, inst *Inst, mem *Memory, regs *Registers, val uint) error {
 	switch op {
 	case Eb:
-		cpu.ModRM.SetRm8(cpu, val)
+		inst.ModRM.SetRm8(cpu, inst, val)
 		return nil
 	case Ev, Ew:
-		cpu.ModRM.SetRm16(cpu, val)
+		inst.ModRM.SetRm16(cpu, inst, val)
 		return nil
 	case Gb:
-		cpu.ModRM.SetR8(cpu, val)
+		inst.ModRM.SetR8(cpu, val)
 		return nil
 	case Gv:
-		cpu.ModRM.SetR16(cpu, val)
+		inst.ModRM.SetR16(cpu, val)
 		return nil
 
 	case Ob:
-		imm16, err := cpu.Inst.GetImm16(cpu)
+		imm16, err := inst.GetImm16(cpu)
 		if err != nil {
 			return err
 		}
-		cpu.Mem.SetMem8(cpu.Regs.DS(), imm16, uint8(val))
+		// hamding override
+		seg := DS
+		if inst.HasSegmentOverride {
+			seg = inst.SegmentOverride
+		}
+		mem.SetMem8(regs.GetSeg16(seg), imm16, uint8(val))
 
 	case Ov:
-		imm16, err := cpu.Inst.GetImm16(cpu)
+		imm16, err := inst.GetImm16(cpu)
 		if err != nil {
 			return err
 		}
-		// TODO - handle segment overrides
-		cpu.Mem.SetMem16(cpu.Regs.DS(), imm16, uint16(val))
+		// hamding override
+		seg := DS
+		if inst.HasSegmentOverride {
+			seg = inst.SegmentOverride
+		}
+		mem.SetMem16(regs.GetSeg16(seg), imm16, uint16(val))
 
 	case Sw:
-		cpu.Regs.SetSeg16(SReg(cpu.ModRM.Reg), val)
+		regs.SetSeg16(SReg(inst.ModRM.Reg), val)
 		return nil
 	case RegAL:
-		cpu.Regs.SetReg8(AL, val)
+		regs.SetReg8(AL, val)
 		return nil
 	case RegAX:
-		cpu.Regs.SetReg16(AX, val)
+		regs.SetReg16(AX, val)
 		return nil
 	}
 
 	return fmt.Errorf("SetByOperand: unknown operand")
 }
 
-func ParseTwoOperands(cpu *CPU, leftop, rightop Operand) (uint, uint, error) {
+func ParseTwoOperands(cpu *CPU, inst *Inst, leftop, rightop Operand) (uint, uint, error) {
 	if leftop.HasModRM() || rightop.HasModRM() {
-		if cpu.ModRM == nil {
-			err := cpu.FetchModRM()
+		if inst.ModRM == nil {
+			err := inst.FetchModRM()
 			if err != nil {
 				return 0, 0, err
 			}
 		}
 	}
-	left, err := leftop.GetByOperand(cpu)
+	left, err := leftop.GetByOperand(cpu, inst, cpu.Mem, cpu.Regs)
 	if err != nil {
 		return 0, 0, err
 	}
-	right, err := rightop.GetByOperand(cpu)
+	right, err := rightop.GetByOperand(cpu, inst, cpu.Mem, cpu.Regs)
 	if err != nil {
 		return 0, 0, err
 	}

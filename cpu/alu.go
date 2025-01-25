@@ -3,38 +3,38 @@ package go86
 import "fmt"
 
 // ADD - Add
-func (cpu *CPU) add(leftop, rightop Operand) error {
-	left, right, err := ParseTwoOperands(cpu, leftop, rightop)
+func (cpu *CPU) add(inst *Inst, leftop, rightop Operand) error {
+	left, right, err := ParseTwoOperands(cpu, inst, leftop, rightop)
 	if err != nil {
 		return err
 	}
 
 	result := left + right
 
-	leftop.SetByOperand(cpu, result)
+	leftop.SetByOperand(cpu, inst, cpu.Mem, cpu.Regs, result)
 	cpu.Flags.SetFlagsAdd(result, left, right, leftop.Bits())
 
 	return nil
 }
 
 // SUB - Subtract
-func (cpu *CPU) sub(leftop, rightop Operand) error {
-	left, right, err := ParseTwoOperands(cpu, leftop, rightop)
+func (cpu *CPU) sub(inst *Inst, leftop, rightop Operand) error {
+	left, right, err := ParseTwoOperands(cpu, inst, leftop, rightop)
 	if err != nil {
 		return err
 	}
 
 	result := left - right
 
-	leftop.SetByOperand(cpu, result)
+	leftop.SetByOperand(cpu, inst, cpu.Mem, cpu.Regs, result)
 	cpu.Flags.SetFlagsSub(result, left, right, leftop.Bits())
 
 	return nil
 }
 
 // SHR - Logical Shift Right
-func (cpu *CPU) shr(leftop, rightop Operand) error {
-	left, right, err := ParseTwoOperands(cpu, leftop, rightop)
+func (cpu *CPU) shr(inst *Inst, leftop, rightop Operand) error {
+	left, right, err := ParseTwoOperands(cpu, inst, leftop, rightop)
 	if err != nil {
 		return err
 	}
@@ -42,7 +42,7 @@ func (cpu *CPU) shr(leftop, rightop Operand) error {
 	cf := (left>>(right-1))&1 == 1
 	result := left >> right
 
-	leftop.SetByOperand(cpu, result)
+	leftop.SetByOperand(cpu, inst, cpu.Mem, cpu.Regs, result)
 	cpu.Flags.SetFlagsZSP(result, leftop.Bits())
 	cpu.Flags.SetFlagIf(CarryFlag, cf)
 
@@ -50,8 +50,8 @@ func (cpu *CPU) shr(leftop, rightop Operand) error {
 }
 
 // SAR - Arithmetic Shift Right
-func (cpu *CPU) sar(leftop, rightop Operand) error {
-	left, right, err := ParseTwoOperands(cpu, leftop, rightop)
+func (cpu *CPU) sar(inst *Inst, leftop, rightop Operand) error {
+	left, right, err := ParseTwoOperands(cpu, inst, leftop, rightop)
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func (cpu *CPU) sar(leftop, rightop Operand) error {
 		return fmt.Errorf("incorrect bits for left operand: %#v", leftop)
 	}
 
-	leftop.SetByOperand(cpu, result)
+	leftop.SetByOperand(cpu, inst, cpu.Mem, cpu.Regs, result)
 	cpu.Flags.SetFlagsZSP(result, leftop.Bits())
 	cpu.Flags.SetFlagIf(CarryFlag, cf)
 
@@ -79,8 +79,8 @@ func (cpu *CPU) sar(leftop, rightop Operand) error {
 }
 
 // SHL - Logical Shift Left
-func (cpu *CPU) shl(leftop, rightop Operand) error {
-	left, right, err := ParseTwoOperands(cpu, leftop, rightop)
+func (cpu *CPU) shl(inst *Inst, leftop, rightop Operand) error {
+	left, right, err := ParseTwoOperands(cpu, inst, leftop, rightop)
 	if err != nil {
 		return err
 	}
@@ -88,7 +88,7 @@ func (cpu *CPU) shl(leftop, rightop Operand) error {
 	cf := (left<<(right-1))&(1<<(leftop.Bits()-1)) != 0
 	result := left << right
 
-	leftop.SetByOperand(cpu, result)
+	leftop.SetByOperand(cpu, inst, cpu.Mem, cpu.Regs, result)
 	cpu.Flags.SetFlagsZSP(result, leftop.Bits())
 	cpu.Flags.SetFlagIf(CarryFlag, cf)
 
@@ -97,12 +97,12 @@ func (cpu *CPU) shl(leftop, rightop Operand) error {
 
 // MUL - Unsigned Multiply
 // always called for grp3
-func (cpu *CPU) mul(op Operand) error {
+func (cpu *CPU) mul(inst *Inst, op Operand) error {
 	left := cpu.Regs.GetReg16(AX)
 	if op.Bits() == 8 {
 		left &= 0x00ff
 	}
-	right, err := op.GetByOperand(cpu)
+	right, err := op.GetByOperand(cpu, inst, cpu.Mem, cpu.Regs)
 	if err != nil {
 		return err
 	}
@@ -127,12 +127,12 @@ func (cpu *CPU) mul(op Operand) error {
 }
 
 // IMUL - Signed Multiply
-func (cpu *CPU) imul(op Operand) error {
+func (cpu *CPU) imul(inst *Inst, op Operand) error {
 	left := cpu.Regs.GetReg16(AX)
 	if op.Bits() == 8 {
 		left &= 0x00ff
 	}
-	right, err := op.GetByOperand(cpu)
+	right, err := op.GetByOperand(cpu, inst, cpu.Mem, cpu.Regs)
 	if err != nil {
 		return err
 	}
@@ -157,12 +157,12 @@ func (cpu *CPU) imul(op Operand) error {
 }
 
 // DIV - Unsigned Divide
-func (cpu *CPU) div(op Operand) error {
+func (cpu *CPU) div(inst *Inst, op Operand) error {
 	left := cpu.Regs.GetReg16(AX)
 	if op.Bits() == 8 {
 		left &= 0x00ff
 	}
-	right, err := op.GetByOperand(cpu)
+	right, err := op.GetByOperand(cpu, inst, cpu.Mem, cpu.Regs)
 	if err != nil {
 		return err
 	}
@@ -185,12 +185,12 @@ func (cpu *CPU) div(op Operand) error {
 }
 
 // IDIV - Signed Divide
-func (cpu *CPU) idiv(op Operand) error {
+func (cpu *CPU) idiv(inst *Inst, op Operand) error {
 	left := cpu.Regs.GetReg16(AX)
 	if op.Bits() == 8 {
 		left &= 0x00ff
 	}
-	right, err := op.GetByOperand(cpu)
+	right, err := op.GetByOperand(cpu, inst, cpu.Mem, cpu.Regs)
 	if err != nil {
 		return err
 	}

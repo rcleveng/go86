@@ -2,14 +2,14 @@ package go86
 
 // xchg - Exchange
 
-func (cpu *CPU) xchg(leftop, rightop Operand) error {
-	left, right, err := ParseTwoOperands(cpu, leftop, rightop)
+func (cpu *CPU) xchg(inst *Inst, leftop, rightop Operand) error {
+	left, right, err := ParseTwoOperands(cpu, inst, leftop, rightop)
 	if err != nil {
 		return err
 	}
 
-	leftop.SetByOperand(cpu, right)
-	rightop.SetByOperand(cpu, left)
+	leftop.SetByOperand(cpu, inst, cpu.Mem, cpu.Regs, right)
+	rightop.SetByOperand(cpu, inst, cpu.Mem, cpu.Regs, left)
 	return nil
 }
 
@@ -23,32 +23,32 @@ func (cpu *CPU) xchgRegs(leftReg Reg, rightReg Reg) {
 
 // MOVE
 
-func (cpu *CPU) mov(leftop, rightop Operand) error {
-	_, right, err := ParseTwoOperands(cpu, leftop, rightop)
+func (cpu *CPU) mov(inst *Inst, leftop, rightop Operand) error {
+	_, right, err := ParseTwoOperands(cpu, inst, leftop, rightop)
 	if err != nil {
 		return err
 	}
 
-	leftop.SetByOperand(cpu, right)
+	leftop.SetByOperand(cpu, inst, cpu.Mem, cpu.Regs, right)
 	return nil
 }
 
 // leaGvM - Load Effective Address
-func (cpu *CPU) leaGvM() error {
-	if err := cpu.FetchModRM(); err != nil {
+func (cpu *CPU) leaGvM(inst *Inst) error {
+	if err := inst.FetchModRM(); err != nil {
 		return err
 	}
-	offset := cpu.ModRM.effectiveAddressOffset16(cpu)
-	cpu.Regs.SetReg16(Reg(cpu.ModRM.Reg), offset)
+	offset := inst.ModRM.effectiveAddressOffset16(cpu)
+	cpu.Regs.SetReg16(Reg(inst.ModRM.Reg), offset)
 	return nil
 }
 
-func (cpu *CPU) lesLds(esds SReg) error {
-	if err := cpu.FetchModRM(); err != nil {
+func (cpu *CPU) lesLds(inst *Inst, esds SReg) error {
+	if err := inst.FetchModRM(); err != nil {
 		return err
 	}
 
-	seg, off, err := cpu.ModRM.GetMemoryLocation(cpu)
+	seg, off, err := inst.ModRM.GetMemoryLocation(cpu, inst)
 	if err != nil {
 		return err
 	}
@@ -56,25 +56,25 @@ func (cpu *CPU) lesLds(esds SReg) error {
 	newoff := cpu.Mem.GetMem16(seg, off)
 	newseg := cpu.Mem.GetMem16(seg, off+2)
 	cpu.Regs.SetSeg16(esds, uint(newseg))
-	cpu.ModRM.SetR16(cpu, uint(newoff))
+	inst.ModRM.SetR16(cpu, uint(newoff))
 	return nil
 }
 
 // popEv - Pop
-func (cpu *CPU) popEv() error {
-	if err := cpu.FetchModRM(); err != nil {
+func (cpu *CPU) popEv(inst *Inst) error {
+	if err := inst.FetchModRM(); err != nil {
 		return err
 	}
 	value := cpu.Regs.Pop16(cpu.Mem)
-	cpu.ModRM.SetRm16(cpu, uint(value))
+	inst.ModRM.SetRm16(cpu, inst, uint(value))
 	return nil
 }
 
 // Move - Move AL, Ib and family
 
 // movALIb - Move
-func (cpu *CPU) movRegIb(reg Reg8) error {
-	value, err := cpu.Fetch8()
+func (cpu *CPU) movRegIb(inst *Inst, reg Reg8) error {
+	value, err := inst.Fetch8()
 	if err != nil {
 		return err
 	}
@@ -82,26 +82,11 @@ func (cpu *CPU) movRegIb(reg Reg8) error {
 	return nil
 }
 
-func (cpu *CPU) movRegIv(reg Reg) error {
-	value, err := cpu.Fetch16()
+func (cpu *CPU) movRegIv(inst *Inst, reg Reg) error {
+	value, err := inst.Fetch16()
 	if err != nil {
 		return err
 	}
 	cpu.Regs.SetReg16(reg, uint(value))
 	return nil
 }
-
-// generate LEA
-/* func (cpu *CPU) lea() error {
-	if err := cpu.FetchModRM(); err != nil {
-		return err
-	}
-	// ignore seg?
-	_, off, err := cpu.ModRM.GetMemoryLocation(cpu)
-	if err != nil {
-		return err
-	}
-	cpu.ModRM.SetR16(cpu, off)
-	return nil
-}
-*/
