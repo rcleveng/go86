@@ -8,6 +8,7 @@ import (
 
 	glog "github.com/golang/glog"
 	bios "go86.org/go86/bios"
+	zed "go86.org/go86/cmd/go86/zed"
 	cpu "go86.org/go86/cpu"
 	deb "go86.org/go86/debugger"
 	dos "go86.org/go86/dos"
@@ -18,6 +19,7 @@ var (
 	port         = flag.Int("port", 2159, "TCP/IP port to listen on for the debugger")
 	runcmd       = flag.NewFlagSet("run", flag.ExitOnError)
 	instcmd      = flag.NewFlagSet("inst", flag.ExitOnError)
+	zedcmd       = flag.NewFlagSet("zed", flag.ExitOnError)
 	runForceType = runcmd.Bool("image", false, "load binary as binary image instead of COM or EXE")
 )
 
@@ -83,6 +85,7 @@ The commands are:
 
 	inst        Execute a string of opcodes
 	run         Execute a DOS executable (exe, com, or binary image)
+	zed         Execute a DOS zed 80186 test
 	help        Displays help
 		
 Use "go86 help <command>" for more information about that command.
@@ -113,22 +116,31 @@ func main() {
 		if !dorun(runcmd.Arg(0)) {
 			os.Exit(1)
 		}
-		// do cmd
-		os.Exit(0)
 	case "inst":
 		// Example inst (hello world):
 		// 8D161500B409CD21B87F00BA010002C2B44CCD21000A0D48656C6C6F20576F726C640D0A0A0A24
 		instcmd.Parse(args[1:])
 		if instcmd.NArg() < 1 {
 			flag.Usage()
-			fmt.Print("Go86\n\nUsage: go86 int <HEX format OpCodes>.\n")
+			fmt.Print("Go86\n\nUsage: go86 inst <HEX format OpCodes>.\n")
 			showHelp()
 			os.Exit(1)
 		}
 		if !doinst(instcmd.Arg(0)) {
 			os.Exit(1)
 		}
-		os.Exit(0)
+	case "zed":
+		zedcmd.Parse(args[1:])
+		if zedcmd.NArg() < 1 {
+			flag.Usage()
+			fmt.Print("Go86\n\nUsage: go86 zed <PATH>.\n")
+			showHelp()
+			os.Exit(1)
+		}
+		if err := zed.DoZed(zedcmd.Arg(0)); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 	case "help":
 		if flag.NArg() > 1 {
 			switch args[1] {
@@ -143,10 +155,10 @@ func main() {
 			}
 		}
 		showHelp()
-		os.Exit(0)
 	default:
 		fmt.Print("ERROR: No command specified.\n\n")
 		showHelp()
-		os.Exit(0)
+		os.Exit(1)
 	}
+	os.Exit(0)
 }
