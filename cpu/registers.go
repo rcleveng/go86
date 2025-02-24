@@ -156,11 +156,15 @@ func (r *Registers) Dec16(reg Reg, num uint) {
 
 // Push an value onto the stack
 func (r *Registers) Push16(mem *Memory, val uint16) {
-	r.regs[SP] = r.regs[SP] - 2
+	if r.regs[SP] == 0 {
+		log.V(2).Infof("   PUSH: stack overflow")
+	}
+
+	r.regs[SP] = (r.regs[SP] - 2) & 0xffff
 	seg := r.sregs[SS]
 	off := r.regs[SP]
 	mem.SetMem16(seg, off, val)
-	log.V(1).Infof("   PUSH: [%04X:%04X] = %04X", seg, off, val)
+	log.V(2).Infof("   PUSH: [%04X:%04X] = %04X", seg, off, val)
 }
 
 // Pop an value off the stack
@@ -169,7 +173,7 @@ func (r *Registers) Pop16(mem *Memory) uint16 {
 	off := r.regs[SP]
 	v := mem.GetMem16(seg, off)
 	r.regs[SP] = (r.regs[SP] + 2) & 0xffff
-	log.V(1).Infof("   POP:%04X [%04X:%04X]", r, seg, off)
+	log.V(2).Infof("   POP: [%04X:%04X]", seg, off)
 	return v
 }
 

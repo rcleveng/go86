@@ -3,6 +3,7 @@ package go86
 import (
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	log "github.com/golang/glog"
 	"golang.org/x/arch/x86/x86asm"
@@ -48,9 +49,9 @@ func CpuString(c *CPU) string {
 		c.Regs.GetReg16(CX), c.Regs.GetReg16(DX),
 		c.Regs.GetReg16(SP), c.Regs.GetReg16(BP),
 		c.Regs.GetReg16(SI), c.Regs.GetReg16(DI))
-	l2 := fmt.Sprintf("DS=%04X ES=%04X SS=%04X CS=%04X IP=%04X %s",
+	l2 := fmt.Sprintf("DS=%04X ES=%04X SS=%04X CS=%04X IP=%04X %s (%04X)",
 		c.Regs.DS(), c.Regs.ES(),
-		c.Regs.SS(), c.Regs.CS(), c.Ip, c.Flags.DoxBoxDebugString())
+		c.Regs.SS(), c.Regs.CS(), c.Ip, c.Flags.DoxBoxDebugString(), c.Flags.Value())
 
 	return fmt.Sprintf("%s\n%s", l1, l2)
 }
@@ -68,7 +69,8 @@ func (cpu *CPU) verboseLogState(origIp uint) error {
 	log.V(4).Infof("[%04X:%04X]: [%-8s] %-20s\n%s\n",
 		cpu.Regs.CS(),
 		origIp,
-		hex.EncodeToString(opcodes), disasm,
+		strings.ToUpper(hex.EncodeToString(opcodes)),
+		disasm,
 		CpuString(cpu))
 	return nil
 }
@@ -88,6 +90,7 @@ func (cpu *CPU) Run() {
 			cpu.verboseLogState(origIp)
 		}
 	}
+	log.Info("CPU stopped")
 }
 
 func (cpu *CPU) Halt() {
@@ -102,9 +105,41 @@ func (cpu *CPU) HandleGrpOne(inst *Inst, left, right Operand) error {
 	// modrm.Reg is an opcode extension
 	switch inst.ModRM.Reg {
 	case 0:
+		//return cpu.add(inst, left, right)
 		return cpu.add(inst, left, right)
 	case 1:
 		return cpu.or(inst, left, right)
+	case 2:
+		return cpu.adc(inst, left, right)
+	case 3:
+		return cpu.sbb(inst, left, right)
+	case 4:
+		return cpu.and(inst, left, right)
+	case 5:
+		return cpu.sub(inst, left, right)
+	case 6:
+		return cpu.xor(inst, left, right)
+	case 7:
+		return cpu.cmp(inst, left, right)
+	default:
+		return fmt.Errorf("unhandled GRP1 opcode: %x", inst.ModRM.Reg)
+	}
+}
+
+func (cpu *CPU) HandleGrpOneSignExtended(inst *Inst, left, right Operand) error {
+	if err := inst.FetchModRM(); err != nil {
+		return err
+	}
+	// modrm.Reg is an opcode extension
+	switch inst.ModRM.Reg {
+	case 0:
+		return cpu.addSigned(inst, left, right)
+	case 1:
+		return cpu.or(inst, left, right)
+	case 2:
+		return cpu.adcSigned(inst, left, right)
+	case 3:
+		return cpu.sbb(inst, left, right)
 	case 4:
 		return cpu.and(inst, left, right)
 	case 5:
@@ -166,7 +201,7 @@ func (cpu *CPU) HandleGrpThree(inst *Inst, left, right Operand) error {
 	case 7:
 		return cpu.idiv(inst, left)
 	default:
-		return fmt.Errorf("unhandled GRP1 opcode: %x", inst.ModRM.Reg)
+		return fmt.Errorf("unhandled GRP3 opcode: %x", inst.ModRM.Reg)
 	}
 }
 
@@ -269,6 +304,16 @@ func (cpu *CPU) RunOnce() error {
 		val := cpu.Regs.Pop16(cpu.Mem)
 		cpu.Regs.SetSeg16(SS, uint(val))
 
+	// ADC
+	case 0x10, 0x11, 0x12, 0x13, 0x14, 0x15:
+		op := StandardOperands[cpu.Inst.OpCode-0x10]
+		return cpu.adc(cpu.Inst, op.Left, op.Right)
+
+	// SBB
+	case 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D:
+		op := StandardOperands[cpu.Inst.OpCode-0x18]
+		return cpu.sbb(cpu.Inst, op.Left, op.Right)
+
 	case 0x1E:
 		cpu.Regs.Push16(cpu.Mem, uint16(cpu.Regs.DS()))
 	case 0x1F:
@@ -290,7 +335,7 @@ func (cpu *CPU) RunOnce() error {
 		op := StandardOperands[cpu.Inst.OpCode-0x30]
 		return cpu.xor(cpu.Inst, op.Left, op.Right)
 
-		// CMP - Compare
+	// CMP - Compare
 	case 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D:
 		op := StandardOperands[cpu.Inst.OpCode-0x38]
 		return cpu.cmp(cpu.Inst, op.Left, op.Right)
@@ -362,7 +407,7 @@ func (cpu *CPU) RunOnce() error {
 	case 0x82: // ????
 		return fmt.Errorf("unhandled undocumented grp1 OpCode: %x", cpu.Inst.OpCode)
 	case 0x83:
-		return cpu.HandleGrpOne(cpu.Inst, Ev, Ib)
+		return cpu.HandleGrpOneSignExtended(cpu.Inst, Ev, Ib)
 
 	// Tests
 	case 0x84:
@@ -526,6 +571,17 @@ func (cpu *CPU) RunOnce() error {
 		}
 		return cpu.int(int(imm8))
 
+	case 0xCE: // INTO
+		if cpu.Flags.IsEnabled(OverflowFlag) {
+			return cpu.int(0x04)
+		}
+		return nil
+
+	case 0xCF: // IRET
+		err := cpu.retFar(0)
+		cpu.Flags.ReplaceAllFlags(uint32(cpu.Regs.Pop16(cpu.Mem)))
+		return err
+
 	case 0xD0: // GRP2
 		return cpu.HandleGrpTwo(cpu.Inst, Eb, ValOne)
 	case 0xD1: // GRP2
@@ -534,6 +590,10 @@ func (cpu *CPU) RunOnce() error {
 		return cpu.HandleGrpTwo(cpu.Inst, Eb, RegCL)
 	case 0xD3: // GRP2
 		return cpu.HandleGrpTwo(cpu.Inst, Ev, RegCL)
+	case 0xD4: // AAM
+		return cpu.aam(cpu.Inst)
+	case 0xD5: // AAD
+		return cpu.aad(cpu.Inst)
 
 		// LOOP
 	case 0xE0:
@@ -555,6 +615,12 @@ func (cpu *CPU) RunOnce() error {
 	case 0xEB:
 		return cpu.jmprel8(cpu.Inst)
 
+	case 0xF4: // HLT
+		cpu.Running = false
+		return nil
+	case 0xF5: // CMC
+		cpu.Flags.ToggleFlag(CarryFlag)
+		return nil
 	case 0xF6: // GRP3
 		return cpu.HandleGrpThree(cpu.Inst, Eb, Ib)
 	case 0xF7: // GRP3

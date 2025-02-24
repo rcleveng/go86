@@ -17,6 +17,81 @@ func (cpu *CPU) add(inst *Inst, leftop, rightop Operand) error {
 	return nil
 }
 
+// ADD - Add
+func (cpu *CPU) addSigned(inst *Inst, leftop, rightop Operand) error {
+	left, right, err := ParseTwoOperands(cpu, inst, leftop, rightop)
+	if err != nil {
+		return err
+	}
+
+	result := left + right
+	switch rightop.Bits() {
+	case 8:
+		r := int8(right)
+		if r < 0 {
+			result = uint(left - uint(-r))
+		}
+	case 16:
+		r := int16(right)
+		if r < 0 {
+			result = left - uint(-r)
+		}
+	}
+
+	leftop.SetByOperand(cpu, inst, cpu.Mem, cpu.Regs, result)
+	cpu.Flags.SetFlagsAdd(result, left, right, leftop.Bits())
+
+	return nil
+}
+
+// ADC - Add with Carry
+func (cpu *CPU) adc(inst *Inst, leftop, rightop Operand) error {
+	left, right, err := ParseTwoOperands(cpu, inst, leftop, rightop)
+	if err != nil {
+		return err
+	}
+
+	result := left + right
+	if cpu.Flags.IsEnabled(CarryFlag) {
+		result++
+	}
+
+	leftop.SetByOperand(cpu, inst, cpu.Mem, cpu.Regs, result)
+	cpu.Flags.SetFlagsAdd(result, left, right, leftop.Bits())
+
+	return nil
+}
+
+// ADC - Add with Carry
+func (cpu *CPU) adcSigned(inst *Inst, leftop, rightop Operand) error {
+	left, right, err := ParseTwoOperands(cpu, inst, leftop, rightop)
+	if err != nil {
+		return err
+	}
+
+	result := left + right
+	switch rightop.Bits() {
+	case 8:
+		r := int8(right)
+		if r < 0 {
+			result = uint(left - uint(-r))
+		}
+	case 16:
+		r := int16(right)
+		if r < 0 {
+			result = left - uint(-r)
+		}
+	}
+	if cpu.Flags.IsEnabled(CarryFlag) {
+		result++
+	}
+
+	leftop.SetByOperand(cpu, inst, cpu.Mem, cpu.Regs, result)
+	cpu.Flags.SetFlagsAdd(result, left, right, leftop.Bits())
+
+	return nil
+}
+
 // SUB - Subtract
 func (cpu *CPU) sub(inst *Inst, leftop, rightop Operand) error {
 	left, right, err := ParseTwoOperands(cpu, inst, leftop, rightop)
@@ -24,6 +99,24 @@ func (cpu *CPU) sub(inst *Inst, leftop, rightop Operand) error {
 		return err
 	}
 
+	result := left - right
+
+	leftop.SetByOperand(cpu, inst, cpu.Mem, cpu.Regs, result)
+	cpu.Flags.SetFlagsSub(result, left, right, leftop.Bits())
+
+	return nil
+}
+
+// SBB - Subtract with Borrow
+func (cpu *CPU) sbb(inst *Inst, leftop, rightop Operand) error {
+	left, right, err := ParseTwoOperands(cpu, inst, leftop, rightop)
+	if err != nil {
+		return err
+	}
+
+	if cpu.Flags.IsEnabled(CarryFlag) {
+		right++
+	}
 	result := left - right
 
 	leftop.SetByOperand(cpu, inst, cpu.Mem, cpu.Regs, result)
@@ -61,12 +154,11 @@ func (cpu *CPU) sar(inst *Inst, leftop, rightop Operand) error {
 	var result uint
 	switch leftop.Bits() {
 	case 8:
-		r := int8(left) >> right
-		r1 := uint8(r)
-		result = uint(r1)
+		topbit := uint(left & 0x80)
+		result = uint(int8(left)>>right) | topbit
 	case 16:
-		r := int16(left) >> right
-		result = uint(r)
+		topbit := uint(left & 0x8000)
+		result = uint(int16(left)>>right) | topbit
 	default:
 		return fmt.Errorf("incorrect bits for left operand: %#v", leftop)
 	}
@@ -209,5 +301,33 @@ func (cpu *CPU) idiv(inst *Inst, op Operand) error {
 		cpu.Regs.SetReg16(AX, uint(quotient))
 		cpu.Regs.SetReg16(DX, uint(remainder))
 	}
+	return nil
+}
+
+// AAD - ASCII Adjust for Data
+func (cpu *CPU) aad(inst *Inst) error {
+	im, err := inst.Fetch8()
+	if err != nil {
+		return err
+	}
+	al := cpu.Regs.GetReg8(AL)
+	ah := cpu.Regs.GetReg8(AH)
+	// AL := (tempAL + (tempAH ∗ imm8)) AND FFH;
+	// AH := 0;
+	al = (al + ah*uint(im)) & 0xff
+	cpu.Regs.SetReg16(AX, al)
+	return nil
+}
+
+// AAM - Adjust for Multiplication
+func (cpu *CPU) aam(inst *Inst) error {
+	im, err := inst.Fetch8()
+	if err != nil {
+		return err
+	}
+	al := cpu.Regs.GetReg8(AL)
+	ah := al / uint(im)
+	al = al % uint(im)
+	cpu.Regs.SetReg16(AX, (ah&0xff)<<8|(al&0xff))
 	return nil
 }

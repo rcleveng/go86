@@ -87,7 +87,8 @@ func (op Operand) GetByOperand(cpu *CPU, inst *Inst, mem *Memory, regs *Register
 		if inst.HasSegmentOverride {
 			seg = inst.SegmentOverride
 		}
-		value := uint(cpu.Mem.GetMem8(uint(seg), imm16))
+		sval := cpu.Regs.GetSeg16(seg)
+		value := uint(cpu.Mem.GetMem8(sval, imm16))
 		return value, nil
 
 	case Ov:
@@ -99,7 +100,8 @@ func (op Operand) GetByOperand(cpu *CPU, inst *Inst, mem *Memory, regs *Register
 		if inst.HasSegmentOverride {
 			seg = inst.SegmentOverride
 		}
-		value := uint(cpu.Mem.GetMem16(uint(seg), imm16))
+		sval := cpu.Regs.GetSeg16(seg)
+		value := uint(cpu.Mem.GetMem16(sval, imm16))
 		return value, nil
 
 	case Sw:

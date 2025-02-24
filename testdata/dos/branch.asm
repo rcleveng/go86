@@ -3,6 +3,7 @@
 ; various conditional branching operations. Designed to
 ; verify corrent functionality of my 8086 PC emulator, Fake86.
 
+bits 16
 org 100h
 
 cli
@@ -401,6 +402,7 @@ call pass
 
 finished:
 ret
+hlt
 
 pass:
 mov si, strgood
@@ -487,3 +489,5 @@ strjle db 'Testing JLE/JNG (jump if SF<>OF or ZF=1)... ',0
 strgood db 'passed!',13,10,0
 
 strfail db 'FAILED!',13,10,0
+
+tail: times 1000 db 0
